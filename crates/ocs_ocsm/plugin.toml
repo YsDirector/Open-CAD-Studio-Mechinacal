@@ -1,0 +1,26 @@
+# Metadata read by the host at load time. Values mirror the manifest in src/lib.rs.
+#
+# `rustc_version` is substituted at DEPLOY time, not written by hand: the host
+# (v2026.36+) gates API-4+ plugins on the compiler that built them (Rust has no
+# stable ABI), so the deployed plugin.toml must carry the exact `rustc --version`
+# string of the build that produced libocs_ocsm.so. See PLUGIN.md "构建与安装".
+
+[plugin]
+id = "opencad.ocsm"
+name = "OCSMechanical 机械工具包"
+version = "0.2.0"
+description = "OCSM 初始化 + 数字键 1-9 快速图层 + 图框插入（TF）+ 智能标注（D）+ 标准件/螺栓副 + 命令手册（OCSMHELP）"
+
+[opencad]
+api_version = 5
+# 两者都是**部署时替换**的占位符（不要手改；用 tools/deploy_plugin.sh 或下面 PLUGIN.md 的两条 sed）：
+# * rustc_version —— 宿主 v2026.36+ 对 API≥4 的 rustc 门禁；
+# * acadrust_source —— 宿主 API≥4 的 acadrust 源指纹门禁（上游 v2026.38 起强制；填错/缺失
+#   插件会被直接拒绝加载，命令行只报 `Plugin built for acadrust @unknown, but this host uses @…`）。
+#   值 = `Cargo.lock` 里 `name = "acadrust"` 那条的 `source`（形如
+#   `git+https://ghfast.top/…cadcodec.git?rev=5b682ed#5b682ed66ea2c89be8142c8dd83d83774fc3de08`）。
+rustc_version = "__RUSTC_VERSION__"
+acadrust_source = "__ACADRUST_SOURCE__"
+ribbon_order = 100
+command_prefixes = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "TF", "OCSM", "OCSMFRAMEINIT", "OCSMFRAMEINSERT", "D", "OCSMPOWERDIM", "OCSMDIMGULIDE", "GDIM", "OCSMMCP", "OCSMRGH", "CC", "OCSMDIM2GB", "D2G", "OCSMEDIT", "ME", "OCSMPART", "XL", "OCSMJOINT", "OCSMHELP", "OH", "OCSMBOM", "BOM", "OCSMBOMSYNC", "BOMSYNC", "OCSMBOMEDIT", "BOMEDIT", "OCSMBOMLOCK", "BOMLOCK", "OCSMBOMXLSX", "BOMXLSX", "OCSMBOMXLSXI", "BOMXLSXI", "OCSMBOMCFG", "BOMCFG", "OCSMCENTERLINE", "ZX", "OCSMGEAR", "OCSMSHAFT", "OCSMHOLE", "DK", "OCSMCARD"]
+xdata_apps = ["OCSM_BOM"]

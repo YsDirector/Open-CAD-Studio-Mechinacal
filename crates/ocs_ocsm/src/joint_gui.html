@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.joint.h1}}</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 14px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  .wrap { display: flex; gap: 12px; align-items: flex-start; }
+  .card { background: #fff; border: 1px solid #d9dee5; border-radius: 8px; padding: 12px 14px; }
+  .left { width: 460px; flex: none; max-height: 80vh; overflow: auto; }
+  .right { flex: 1; min-width: 360px; }
+  .card h2 { font-size: 13px; margin: 14px 0 8px; color: #555; }
+  .card h2:first-child { margin-top: 0; }
+  label { display: block; font-size: 12px; color: #666; margin: 8px 0 2px; }
+  select, input[type=number] { width: 100%; padding: 5px 6px; border: 1px solid #c6ccd4;
+           border-radius: 4px; font-size: 13px; box-sizing: border-box; background: #fff; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .opt { padding: 5px 10px; border: 1px solid #c6ccd4; border-radius: 5px;
+         background: #fafbfc; cursor: pointer; font-size: 13px; user-select: none; }
+  .opt.on { background: #1e6fff; border-color: #1e6fff; color: #fff; }
+  .btn { border: none; border-radius: 6px; padding: 9px 18px; font-size: 14px; cursor: pointer;
+         background: #1e6fff; color: #fff; margin-top: 12px; }
+  .btn[disabled] { background: #9db9e8; cursor: not-allowed; }
+  .btn.ghost { background: #e4e7ec; color: #333; padding: 6px 12px; font-size: 13px; margin-top: 6px; }
+  .btn.mini { background: #eef1f5; color: #333; padding: 2px 7px; font-size: 12px; margin: 0; }
+  .hint { font-size: 12px; color: #888; margin-top: 8px; line-height: 1.5; }
+  #status { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .ok { color: #1a7f37; } .bad { color: #d1242f; }
+  #preview { width: 100%; max-height: 42vh; object-fit: contain;
+             border: 1px solid #e2e6ea; border-radius: 6px; background: #fff; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; }
+  /* ── 件链表 ── */
+  table.chain { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.chain th { text-align: left; font-size: 11px; color: #888; font-weight: 400;
+                   padding: 2px 4px; }
+  table.chain td { padding: 2px 3px; vertical-align: middle; }
+  table.chain select, table.chain input { padding: 3px 4px; font-size: 12px; }
+  table.chain td.t { width: 66px; }
+  table.chain td.d { width: 116px; }
+  table.chain tr.bad td { background: #fff6e5; }
+  table.chain td.act { width: 62px; white-space: nowrap; text-align: right; }
+  .chainwrap { border: 1px solid #e6eaef; border-radius: 6px; padding: 4px 6px 8px; }
+  /* ── 报告块 ── */
+  #report { font-size: 12.5px; line-height: 1.6; background: #fbfcfd; border: 1px solid #e6eaef;
+            border-radius: 6px; padding: 8px 10px; margin-top: 8px; white-space: pre-wrap;
+            word-break: break-all; }
+  .kv { display: grid; grid-template-columns: 96px 1fr; gap: 2px 8px; font-size: 12.5px;
+        margin-top: 8px; }
+  .kv b { font-weight: 600; }
+  .kv .k { color: #777; }
+  .warn { color: #b26a00; }
+</style>
+</head>
+<body>
+<h1>{{i18n:gui.joint.h1}}<span id="code" class="hint"></span></h1>
+
+<div class="wrap">
+  <div class="card left">
+    <h2>{{i18n:gui.joint.bolt}}</h2>
+    <label for="fam">螺栓族</label>
+    <select id="fam"></select>
+    <div class="grid3" style="margin-top:8px">
+      <div><label for="dia">公称直径</label><select id="dia"></select></div>
+      <div><label for="len">长度 l</label><select id="len"></select></div>
+      <div><label for="protrude">露出（扣）</label><input type="number" id="protrude" value="2.5" min="0" step="0.5"></div>
+    </div>
+    <div class="hint" id="lenHint"></div>
+
+    <h2>{{i18n:gui.joint.chain}}</h2>
+    <div class="chainwrap">
+      <table class="chain">
+        <thead><tr><th>件</th><th>规格</th><th>厚度（板/间隙）</th><th></th></tr></thead>
+        <tbody id="chain"></tbody>
+      </table>
+      <div class="row">
+        <button class="btn ghost" id="add">{{i18n:gui.joint.add}}</button>
+      </div>
+    </div>
+
+    <h2>{{i18n:gui.joint.presets}}</h2>
+    <div class="row" id="presets"></div>
+    <div class="hint">
+      件链是<b>你（或 AI 按工况）决定的</b>：命令只按件链算长度、按基点放置、按遮挡裁剪，
+      不替你判断该不该加垫圈/防松件。防松方式常用三种：
+      <b>弹垫</b>（平垫+弹垫+螺母）、<b>双螺母</b>（薄螺母在内 + 厚螺母在外，或两个厚螺母）、
+      <b>头部带孔螺栓</b>（GB/T 32.1 + 开口销/铁丝，销族另选）。
+    </div>
+
+    <div class="row">
+      <button class="btn ghost" id="clear">{{i18n:gui.joint.clear}}</button>
+    </div>
+  </div>
+
+  <div class="card right">
+    <h2>{{i18n:gui.joint.place_title}}</h2>
+    <div class="grid3">
+      <div><label for="rot">转角（度）</label><select id="rot">
+        <option value="-90">-90（杆朝下）</option>
+        <option value="0">0（杆朝右）</option>
+        <option value="90">90（杆朝上）</option>
+        <option value="180">180（杆朝左）</option>
+      </select></div>
+      <div><label for="view">视图</label><select id="view">
+        <option value="main">主视图</option>
+        <option value="end">左视图</option>
+        <option value="top">俯视图</option>
+      </select></div>
+      <div><label>&nbsp;</label><button class="btn" id="place" style="width:100%">{{i18n:gui.joint.place}}</button></div>
+    </div>
+    <div id="status"></div>
+    <h2>{{i18n:gui.joint.preview}}</h2>
+    <img id="preview" alt="装配预览" />
+    <div id="report">…</div>
+    <div class="kv" id="kv"></div>
+    <div class="hint">
+      生成物：轮廓 → <code>1轮廓实线层</code>、牙底/细线 → <code>2细线层</code>、中心线 → <code>3中心线层</code>；
+      颜色/线型/线宽一律 <b>ByLayer</b>；基点 = <b>螺栓头部支承面 × 轴线</b>；
+      被螺母/垫圈包住的杆段按外形视图遮挡规则<b>不画</b>（<code>裁剪</code> 可关）。
+      <label style="display:inline;margin:0 0 0 6px"><input type="checkbox" id="trim" checked> 遮挡裁剪</label>
+    </div>
+  </div>
+</div>
+
+<script>
+let catalog = null;
+let chain = [];          // [{kind, family, d, t}]
+const el = (id) => document.getElementById(id);
+// 本窗口钉在哪张图纸上（插件开窗时写的 `tab=`）：装配/落件请求带回给插件，
+// 多张图各开窗口时不串图；旧窗口（图纸已关）会被插件明确拒绝。
+const TAB = new URLSearchParams(location.search).get("tab");
+
+const KIND_LABEL = { plate: "板厚（被连接件）", gap: "间隙/垫片", washer: "垫圈", nut: "螺母" };
+// 件链可选项：板厚、间隙 + 库里的垫圈/螺母族（kind 由 /api/parts 给出）
+function chainOptions() {
+  const opts = [
+    { value: "plate", label: "板厚（被连接件）", kind: "plate" },
+    { value: "gap", label: "间隙/垫片", kind: "gap" },
+  ];
+  Object.entries(catalog.families).forEach(([id, f]) => {
+    if (f.kind === "washer" && f.implemented !== false) opts.push({ value: id, label: f.name + " " + f.code, kind: "washer" });
+  });
+  Object.entries(catalog.families).forEach(([id, f]) => {
+    if (f.kind === "nut" && f.implemented !== false) opts.push({ value: id, label: f.name + " " + f.code, kind: "nut" });
+  });
+  return opts;
+}
+
+function familyOf(id) { return catalog.families[id] || null; }
+
+// 默认直径取 M8（工程常用）；表里没有就取中间档，避免默认落到 M1.6 这种极端小规格
+function preferredD(sizes) {
+  const has = (d) => sizes.some((s) => Number(s.d) === d);
+  for (const d of [8, 10, 12, 6, 16, 20]) {
+    if (has(d)) return d;
+  }
+  return Number(sizes[Math.floor(sizes.length / 2)].d);
+}
+function kindOf(id) {
+  if (id === "plate") return "plate";
+  if (id === "gap") return "gap";
+  const f = familyOf(id);
+  return f ? f.kind : "other";
+}
+
+async function load() {
+  try {
+    await loadInner();
+  } catch (e) {
+    const s = el("status");
+    s.textContent = "初始化失败：" + e;
+    s.className = "bad";
+  }
+}
+
+async function loadInner() {
+  catalog = await (await fetch("/api/parts")).json();
+  const fam = el("fam");
+  fam.innerHTML = "";
+  Object.entries(catalog.families).forEach(([id, f]) => {
+    if (f.kind === "bolt" && f.implemented !== false && (f.sizes || []).length) {
+      const o = document.createElement("option");
+      o.value = id;
+      o.textContent = f.name + " " + f.code;
+      fam.appendChild(o);
+    }
+  });
+  fam.value = "hex_bolt_b_full";
+  buildPresets();
+  // 默认件链：两块 10 板 + 平垫 + 弹垫 + C级螺母（弹垫防松）
+  chain = [
+    { kind: "plate", t: 10 },
+    { kind: "plate", t: 10 },
+    { kind: "washer", family: "washer_971", d: 8 },
+    { kind: "washer", family: "washer_93", d: 8 },
+    { kind: "nut", family: "nut_c41", d: 8 },
+  ];
+  onFamily();
+  renderChain();
+  update();
+}
+
+const PRESETS = [
+  { name: "无防松：板 + 螺母", chain: [{ kind: "plate", t: 10 }, { kind: "plate", t: 10 }, { kind: "nut", family: "nut_c41", d: 0 }] },
+  { name: "平垫 + 螺母", chain: [{ kind: "plate", t: 10 }, { kind: "plate", t: 10 }, { kind: "washer", family: "washer_971", d: 0 }, { kind: "nut", family: "nut_c41", d: 0 }] },
+  { name: "弹垫防松（平垫+弹垫+螺母）", chain: [{ kind: "plate", t: 10 }, { kind: "plate", t: 10 }, { kind: "washer", family: "washer_971", d: 0 }, { kind: "washer", family: "washer_93", d: 0 }, { kind: "nut", family: "nut_c41", d: 0 }] },
+  { name: "双螺母防松（薄内 + 厚外）", chain: [{ kind: "plate", t: 10 }, { kind: "plate", t: 10 }, { kind: "washer", family: "washer_971", d: 0 }, { kind: "nut", family: "nut_61721", d: 0 }, { kind: "nut", family: "nut_c41", d: 0 }] },
+  { name: "双螺母防松（两个厚螺母）", chain: [{ kind: "plate", t: 10 }, { kind: "plate", t: 10 }, { kind: "washer", family: "washer_971", d: 0 }, { kind: "nut", family: "nut_c41", d: 0 }, { kind: "nut", family: "nut_c41", d: 0 }] },
+  { name: "单板 + 弹垫 + 螺母", chain: [{ kind: "plate", t: 10 }, { kind: "washer", family: "washer_93", d: 0 }, { kind: "nut", family: "nut_c41", d: 0 }] },
+];
+
+function buildPresets() {
+  const row = el("presets");
+  row.innerHTML = "";
+  PRESETS.forEach((p) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.textContent = p.name;
+    b.addEventListener("click", () => {
+      const d = Number(el("dia").value) || 8;
+      chain = p.chain.map((it) => (it.d === 0 ? { ...it, d } : { ...it }));
+      renderChain();
+      update();
+    });
+    row.appendChild(b);
+  });
+}
+
+function onFamily() {
+  const f = familyOf(el("fam").value);
+  const dia = el("dia");
+  dia.innerHTML = "";
+  f.sizes.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s.d;
+    o.textContent = s.label;
+    dia.appendChild(o);
+  });
+  dia.value = preferredD(f.sizes);
+  onDia();
+}
+
+function onDia() {
+  const f = familyOf(el("fam").value);
+  const d = Number(el("dia").value);
+  const s = f.sizes.find((x) => Number(x.d) === d);
+  const len = el("len");
+  len.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = "auto";
+  auto.textContent = "自动（按件链 + 露出扣数算）";
+  len.appendChild(auto);
+  (s.lengths || []).forEach((L) => {
+    const o = document.createElement("option");
+    o.value = L;
+    o.textContent = L + " mm";
+    len.appendChild(o);
+  });
+  len.value = "auto";
+  el("code").textContent = "　" + f.code + " ← " + f.iso;
+  el("lenHint").textContent = (s.lengths || []).length
+    ? "该直径供货长度：" + s.lengths.join("、") + " mm（" + (f.len_label || "长度") + "）"
+    : "";
+  // 件链里的垫圈/螺母跟着直径走：该族没这个直径就取最近档（行内标黄提示）
+  chain = chain.map((it) => {
+    if (it.kind === "plate" || it.kind === "gap") return it;
+    const fam = familyOf(it.family);
+    if (!fam || !fam.sizes.length) return it;
+    if (fam.sizes.some((s) => Number(s.d) === d)) return { ...it, d };
+    const near = fam.sizes.reduce((best, s) =>
+      Math.abs(Number(s.d) - d) < Math.abs(Number(best.d) - d) ? s : best, fam.sizes[0]);
+    return { ...it, d: Number(near.d), matched: false };
+  });
+  renderChain();
+  update();
+}
+
+function specItem(it) {
+  if (it.kind === "plate" || it.kind === "gap") return { kind: it.kind, t: Number(it.t) || 0 };
+  return { kind: it.kind, family: it.family, d: Number(it.d) };
+}
+
+function renderChain() {
+  const tb = el("chain");
+  tb.innerHTML = "";
+  chain.forEach((it, i) => {
+    const tr = document.createElement("tr");
+    // 件类型
+    const td1 = document.createElement("td");
+    const sel = document.createElement("select");
+    chainOptions().forEach((o) => {
+      const op = document.createElement("option");
+      op.value = o.value;
+      op.textContent = o.label;
+      sel.appendChild(op);
+    });
+    sel.value = it.kind === "plate" || it.kind === "gap" ? it.kind : it.family;
+    sel.addEventListener("change", () => {
+      const k = kindOf(sel.value);
+      if (k === "plate" || k === "gap") chain[i] = { kind: k, t: it.t || 10 };
+      else chain[i] = { kind: k, family: sel.value, d: Number(el("dia").value) || 8 };
+      renderChain();
+      update();
+    });
+    td1.appendChild(sel);
+    tr.appendChild(td1);
+    // 规格（板=厚度输入；垫圈/螺母=直径下拉 + 表内高度说明）
+    const td2 = document.createElement("td");
+    td2.className = "d";
+    if (it.kind === "plate" || it.kind === "gap") {
+      td2.innerHTML = '<span class="hint">—</span>';
+    } else {
+      const f = familyOf(it.family);
+      const dsel = document.createElement("select");
+      (f ? f.sizes : []).forEach((s) => {
+        const op = document.createElement("option");
+        op.value = s.d;
+        op.textContent = s.label;
+        dsel.appendChild(op);
+      });
+      dsel.value = it.d;
+      dsel.addEventListener("change", () => {
+        chain[i].d = Number(dsel.value);
+        delete chain[i].matched;
+        renderChain();
+        update();
+      });
+      td2.appendChild(dsel);
+      if (it.matched === false) {
+        tr.classList.add("bad");
+        td2.title = "该族没有 Ø" + (Number(el("dia").value) || "?") + " 这一档，已就近取 " + (f ? f.sizes.find((x) => Number(x.d) === Number(it.d))?.label : "");
+      }
+    }
+    tr.appendChild(td2);
+    // 厚度列
+    const td3 = document.createElement("td");
+    td3.className = "t";
+    if (it.kind === "plate" || it.kind === "gap") {
+      const inp = document.createElement("input");
+      inp.type = "number";
+      inp.step = "0.5";
+      inp.value = it.t;
+      inp.addEventListener("input", () => { chain[i].t = Number(inp.value); update(); });
+      td3.appendChild(inp);
+    } else {
+      const f = familyOf(it.family);
+      const s = f ? f.sizes.find((x) => Number(x.d) === Number(it.d)) : null;
+      td3.innerHTML = '<span class="hint">' + (s ? s.l_min : "?") + "</span>";
+    }
+    tr.appendChild(td3);
+    // 操作
+    const td4 = document.createElement("td");
+    td4.className = "act";
+    const up = document.createElement("button");
+    up.className = "btn mini"; up.textContent = "↑";
+    up.addEventListener("click", () => { if (i > 0) { [chain[i - 1], chain[i]] = [chain[i], chain[i - 1]]; renderChain(); update(); } });
+    const dn = document.createElement("button");
+    dn.className = "btn mini"; dn.textContent = "↓";
+    dn.addEventListener("click", () => { if (i < chain.length - 1) { [chain[i + 1], chain[i]] = [chain[i], chain[i + 1]]; renderChain(); update(); } });
+    const del = document.createElement("button");
+    del.className = "btn mini"; del.textContent = "×";
+    del.addEventListener("click", () => { chain.splice(i, 1); renderChain(); update(); });
+    td4.append(up, dn, del);
+    tr.appendChild(td4);
+    tb.appendChild(tr);
+  });
+}
+
+function specJson() {
+  const d = Number(el("dia").value);
+  const items = [{ kind: "bolt", family: el("fam").value, d }];
+  const l = el("len").value;
+  if (l !== "auto") items[0].l = Number(l);
+  chain.forEach((it) => items.push(specItem(it)));
+  return {
+    at: [0, 0],
+    rot: Number(el("rot").value),
+    protrude: Number(el("protrude").value),
+    trim: el("trim").checked,
+    view: el("view").value,
+    items,
+  };
+}
+
+let seq = 0;
+async function update() {
+  const my = ++seq;
+  el("status").textContent = "";
+  try {
+    const r = await fetch("/api/joint_plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(specJson()),
+    });
+    const j = await r.json();
+    if (my !== seq) return;   // 过期响应丢弃
+    if (!j.ok) {
+      el("report").textContent = "无法装配：" + (j.error || "未知错误");
+      el("report").className = "bad";
+      el("kv").innerHTML = "";
+      el("preview").style.display = "none";
+      el("preview").removeAttribute("src");
+      return;
+    }
+    el("preview").style.display = "";
+    el("report").className = "";
+    el("report").textContent = j.report;
+    el("preview").src = "data:image/svg+xml;utf8," + encodeURIComponent(j.svg);
+    const rows = [
+      ["Σ 件高", j.stack + " mm"],
+      ["需长度 ≥", j.need + " mm"],
+      ["取供货长度", j.bolt.l + " mm（" + j.bolt.family + " M" + j.bolt.d + "）"],
+      ["实际外露", j.protrude_mm.toFixed(2) + " mm"],
+      ["件数", j.count + " 件"],
+    ];
+    if (j.trimmed && j.trimmed.length) rows.push(["遮挡裁剪", j.trimmed.join("；")]);
+    el("kv").innerHTML = rows
+      .map(([k, v]) => '<div class="k">' + k + '</div><div><b>' + v + "</b></div>")
+      .join("");
+  } catch (e) {
+    el("report").textContent = "请求失败：" + e;
+    el("report").className = "bad";
+  }
+}
+
+async function place() {
+  el("status").textContent = "装配中…";
+  el("status").className = "";
+  try {
+    const r = await fetch("/api/joint_place", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ tab: TAB || undefined }, specJson())),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      el("status").textContent = "已就绪：切回图纸点基点 → 移动旋转 → 再点落定";
+      el("status").className = "ok";
+      setTimeout(() => {
+        try { window.close(); } catch (e) { /* 浏览器拒绝时忽略 */ }
+        el("status").textContent = "已就绪（若本窗口未自动关闭，请切回图纸继续）";
+      }, 300);
+    } else {
+      el("status").textContent = "失败：" + (j.error || "未知错误");
+      el("status").className = "bad";
+    }
+  } catch (e) {
+    el("status").textContent = "请求失败：" + e;
+    el("status").className = "bad";
+  }
+}
+
+// 心跳：告诉插件"螺栓副窗口还开着"（避免重复开窗）；关闭时 bye=1
+function ping(bye) {
+  try { fetch("/api/page_ping?p=joint" + (bye ? "&bye=1" : ""), { cache: "no-store" }); } catch (e) {}
+}
+
+(async function init() {
+  // 初始化兜底：任何 JS 异常都写到状态行，避免"面板半渲染"看不出原因
+  window.addEventListener("error", (e) => {
+    const s = el("status");
+    s.textContent = "脚本错误：" + e.message;
+    s.className = "bad";
+  });
+  ping(false);
+  setInterval(() => ping(false), 5000);
+  window.addEventListener("beforeunload", () => ping(true));
+  el("add").addEventListener("click", () => {
+    chain.push({ kind: "nut", family: "nut_c41", d: Number(el("dia").value) || 8 });
+    renderChain();
+    update();
+  });
+  el("clear").addEventListener("click", () => { chain = []; renderChain(); update(); });
+  el("place").addEventListener("click", place);
+  el("fam").addEventListener("change", () => { onFamily(); update(); });
+  el("dia").addEventListener("change", () => { onDia(); update(); });
+  el("len").addEventListener("change", update);
+  el("protrude").addEventListener("input", update);
+  el("rot").addEventListener("change", update);
+  el("view").addEventListener("change", update);
+  el("trim").addEventListener("change", update);
+  await load();
+})();
+</script>
+</body>
+</html>

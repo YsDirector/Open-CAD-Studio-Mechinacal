@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Smart Card">
+  <rect x="4" y="4.5" width="16" height="15" rx="1.5" fill="none" stroke="#B4B6B9" stroke-width="1.625" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M4 9 H20" fill="none" stroke="#B4B6B9" stroke-width="1.625" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M4 14.25 H20 M12 14.25 V19.5" fill="none" stroke="#B4B6B9" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M17.7 10.2 L18.05 11.3 L19.15 11.65 L18.05 12 L17.7 13.1 L17.35 12 L16.25 11.65 L17.35 11.3 Z" fill="#6DB7ED" stroke="none"/>
+</svg>

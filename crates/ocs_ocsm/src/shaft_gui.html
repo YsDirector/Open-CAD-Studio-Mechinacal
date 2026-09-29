@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.shaft.title}}</title>
+<style>
+  /* 样式与 gear_gui.html / parts_gui.html / joint_gui.html 同款：同一套配色、圆角与控件尺寸 */
+  :root { color-scheme: light; }
+  body { font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 14px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  .sub { font-size: 12px; color: #888; font-weight: 400; margin-left: 8px; }
+  .wrap { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+  .card { background: #fff; border: 1px solid #d9dee5; border-radius: 8px; padding: 12px 14px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: #555; }
+  label { display: block; font-size: 12px; color: #666; margin: 8px 0 2px; }
+  select, input[type=number], input[type=text] { width: 100%; padding: 5px 6px; border: 1px solid #c6ccd4;
+           border-radius: 4px; font-size: 13px; box-sizing: border-box; background: #fff; }
+  input[disabled], select[disabled], input[readonly] { background: #f1f3f5; color: #888; cursor: not-allowed; }
+  input[readonly] { cursor: default; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .btn { border: none; border-radius: 6px; padding: 9px 18px; font-size: 14px; cursor: pointer;
+         background: #1e6fff; color: #fff; margin-top: 12px; }
+  .btn[disabled] { background: #9db9e8; cursor: not-allowed; }
+  .btn.ghost { background: #e4e7ec; color: #333; margin-top: 0; padding: 5px 12px; font-size: 13px; }
+  .btn.ghost:hover { background: #d7dbe1; }
+  .btn.ghost.on { background: #1e6fff; color: #fff; }
+  .hint { font-size: 12px; color: #888; margin-top: 8px; line-height: 1.5; }
+  #status, #perr, #dslErr, #segErr, #exprErr { font-size: 13px; margin-top: 8px; min-height: 18px; white-space: pre-wrap; }
+  #exprInput { flex: 1 1 420px; width: auto; }
+  #exprErr:empty { min-height: 0; margin-top: 0; }
+  .ok { color: #1a7f37; } .bad { color: #d1242f; } .warn { color: #b26a00; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; }
+  /* ── 预览区：深色底、居中、宽度自适应（与后端 SVG 的 #111 底色一致） ── */
+  #preview { display: block; width: 100%; max-height: 46vh; object-fit: contain;
+             border: 1px solid #e2e6ea; border-radius: 6px; background: #111; margin-top: 10px; }
+  /* ── 段表：横向可滚；行选中高亮；输入框紧凑 ── */
+  .tblwrap { overflow-x: auto; margin-top: 4px; }
+  table.seg { border-collapse: collapse; width: 100%; min-width: 1180px; }
+  table.seg th, table.seg td { border: 1px solid #e2e6ea; padding: 4px 6px; font-size: 12.5px; vertical-align: top; }
+  table.seg th { background: #f6f8fa; color: #555; font-weight: 600; text-align: center; white-space: nowrap; }
+  table.seg tbody tr { cursor: pointer; }
+  table.seg tbody tr.sel { background: #eef4ff; }
+  table.seg tbody tr.bad { background: #fff0f0; }
+  table.seg td.idx { text-align: center; color: #888; padding-top: 12px; }
+  table.seg input[type=number] { width: 64px; padding: 3px 4px; font-size: 12.5px; }
+  table.seg select { width: 128px; padding: 3px 4px; font-size: 12px; }
+  .spline-derive { font-size: 11px; color: #888; white-space: nowrap; line-height: 1.5; }
+  table.seg td.feat .frow { display: flex; align-items: center; gap: 4px; margin: 1px 0; }
+  .chk { display: inline-flex; align-items: center; gap: 3px; margin: 0; font-size: 12px;
+         color: #555; white-space: nowrap; cursor: pointer; }
+  .chk input { margin: 0; }
+  /* ── 行文本区 ── */
+  #dsl { width: 100%; min-height: 132px; padding: 8px 9px; border: 1px solid #c6ccd4; border-radius: 6px;
+         font: 13px/1.55 ui-monospace, "SF Mono", Consolas, "Courier New", monospace;
+         box-sizing: border-box; resize: vertical; background: #fff; color: #222; }
+  #dsl.bad { border-color: #d1242f; }
+  /* ── 放置表单：标签在左、控件在右 ── */
+  .form { display: grid; grid-template-columns: 150px 1fr; gap: 8px 10px; align-items: start; }
+  .form > label { margin: 0; padding-top: 6px; }
+  .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .ctl input[type=number] { width: 110px; }
+  .unit { font-size: 12px; color: #888; }
+</style>
+</head>
+<body>
+<h1>{{i18n:gui.shaft.h1}}<span class="sub">{{i18n:gui.shaft.sub}}</span></h1>
+
+<div class="wrap">
+  <!-- ① 预览：轴侧视图（深色底，和齿轮窗口同一渲染口径） -->
+  <div class="card">
+    <h2>预览（侧视图 · <span id="viewName">常规</span>）</h2>
+    <img id="preview" alt="轴预览">
+    <div id="perr"></div>
+  </div>
+
+  <!-- ② 视图：常规 / 剖视（预览与导出都带 view 参数；双视图已移除） -->
+  <div class="card">
+    <h2>视图（预览与生成都按这个走）</h2>
+    <div class="row" id="viewRow"></div>
+  </div>
+
+  <!-- ③ 段表：一行一段，从左到右拼接 -->
+  <div class="card">
+    <h2>轴段表（点选一行，再用按钮增删/搬移）</h2>
+    <div class="tblwrap">
+      <table class="seg" id="segTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>S 直径</th>
+            <th>E 直径</th>
+            <th>L 段长</th>
+            <th>CH 倒角</th>
+            <th>OV 越程槽</th>
+            <th>M 螺纹段</th>
+            <th>KEY 平键轴槽</th>
+            <th>GEAR 齿轮段</th>
+            <th>SPLINE 矩形花键段（规格下拉）</th>
+          </tr>
+        </thead>
+        <tbody id="segBody"></tbody>
+      </table>
+    </div>
+    <div class="row">
+      <button type="button" class="btn ghost" id="addRow">{{i18n:gui.shaft.add_row}}</button>
+      <button type="button" class="btn ghost" id="delRow">{{i18n:gui.shaft.del_row}}</button>
+      <button type="button" class="btn ghost" id="copyRow">{{i18n:gui.shaft.copy_row}}</button>
+      <button type="button" class="btn ghost" id="upRow">{{i18n:gui.shaft.up_row}}</button>
+      <button type="button" class="btn ghost" id="downRow">{{i18n:gui.shaft.down_row}}</button>
+    </div>
+    <!-- 表达式互通：齿轮窗口复制来的轴段表达式（GEAR 一行）粘贴即成段 -->
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="exprInput" placeholder="粘贴齿轮表达式（例 GEAR M3 Z20 H20 ALPHA20）">
+      <button type="button" class="btn ghost" id="exprAdd">{{i18n:gui.shaft.parse_add}}</button>
+      <button type="button" class="btn ghost" id="openGear">{{i18n:gui.shaft.open_gear}}</button>
+    </div>
+    <div class="hint" id="exprErr"></div>
+    <div class="hint" id="segHint">
+      <b>打开即为空表</b>：点「+ 加行」添加第一段（S/E/L 圆柱段，或勾 M / KEY / GEAR / SPLINE 段型），
+      或把表达式粘贴到上方表达式框 / 下方行文本。
+    </div>
+    <div id="segErr"></div>
+  </div>
+
+  <!-- ④ 行文本：可粘贴/编辑；解析成功回填段表，失败标行号 -->
+  <div class="card">
+    <h2>行文本（可粘贴/编辑；解析成功后回填段表）</h2>
+    <textarea id="dsl" spellcheck="false" title="段级退刀槽：RL@L / RL@R（P 查 GB/T 3 表 2，或显式 g1/g2/dg/r）；齿轮段可加 ALPHA（省略 = 20°）；矩形花键：表内规格 de 自动查表，de 63 = 覆盖，表外规格必须给 de，引入倒角在相邻段写 CH；视图可写 VIEW 剖视（独立一行或段内关键字）"></textarea>
+    <div id="dslErr"></div>
+    <div class="hint" id="dslHint">
+      一行一段，从左到右拼接；多段用 <code>|</code> 或换行分隔；大小写不敏感、段内关键字顺序无关。
+      例：<code>OCSMSHAFT S30 E30 L45 CH2@L | S40 E40 L7 M1.5 | S36 E36 L5 | GEAR M3 Z20 VIEW 剖视</code>。
+    </div>
+  </div>
+
+  <!-- ⑤ 放置（可选）+ 生成到图纸 -->
+  <div class="card">
+    <h2>放置（可选）</h2>
+    <div class="form">
+      <label for="atx">落点 at</label>
+      <div class="ctl">
+        <input type="number" id="atx" placeholder="x">
+        <input type="number" id="aty" placeholder="y">
+        <span class="unit">mm（都留空 = 放置态：回图纸点基点 → 旋转 → 落定）</span>
+      </div>
+      <label for="rot">旋转 rot</label>
+      <div class="ctl"><input type="number" id="rot" placeholder="0"><span class="unit">°（逆时针）</span></div>
+    </div>
+    <button class="btn" id="out" title="生成物：轮廓/端面/倒角/槽与边界竖线 → 1轮廓实线层；螺纹小径/螺尾 → 2细线层（磨外圆/OV 不画砂轮细线）；轴线/分度线 → 3中心线层；剖视剖面线 → 5剖面线层；齿轮段只画齿顶线 + 分度线（不画齿根线）；花键段大径线 + 小径细线 + 收尾弧（R=de/2）→ 2细线层，剖视改轮廓线并打轴线↔小径剖面线；颜色/线型/线宽一律 ByLayer；不含尺寸标注">{{i18n:gui.shaft.export}}</button>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script src="/ocsm_gui_common.js"></script>
+<script>
+/* ─────────────────────────── 常量与状态 ─────────────────────────── */
+
+// 打开窗口即为**空段表**（用户 2026-09-23 定案：不再预填示例轴特征；
+// 点「+ 加行」添加第一段，或粘贴表达式）。
+
+// 窗口钉在哪张图纸（插件开窗时写的 tab=）：生成到图纸时带回给插件，多张图不串。
+const TAB = new URLSearchParams(location.search).get("tab");
+const el = (id) => document.getElementById(id);
+
+// 视图开关（key 与 shaft.rs::ShaftView 对齐）：预览/导出都带 view 参数；双视图已移除。
+const VIEWS = [
+  { key: "normal", name: "常规" },
+  { key: "section", name: "剖视" },
+];
+
+let rows = [];              // 段表状态（一行一段）
+let sel = 0;                // 当前选中行
+let splineSpecs = [];       // 矩形花键规格表（/api/parts → detail_spline_rect.specs）
+// 平键族数据（/api/parts → key_1096_a/_b/_c）：A/B/C → {sizes, ranges}；
+// sizes = 每档 {d(=b), label, lengths(L 系列∩L<10b), l_min/l_max, extra(h/c)}；
+// ranges = 轴径→键宽选型区间（1979 d 列，仅初选）。
+let keyCatalog = {};
+// 导向平键（GB/T 1097）数据：`sizes`（每档含 d0/l0/lengths）+ `length_rows`（L→L1/L2/L3）。
+let keyCatalog1097 = {};
+// 键型样式表（**表驱动**；与后端 `partgen_keys::KEY_STYLES` 同源，经 `/api/parts` 顶层
+// `key_styles` 下发）：每行 = {id,label,kind,guided,standard,places,allow_double,place_hint}。
+// 下拉选项/位置约束/双槽可用性/信息行全部由本表驱动；加「楔形平键」只需后端表加一行。
+// 下面常量仅 `/api/parts` 不可用时兜底（正常路径用服务端表覆盖）。
+const KEY_STYLES_FALLBACK = [
+  { id: "A", label: "普通平键A型", kind: "A", guided: false, standard: "GB/T 1096-2003", places: ["mid", "end"], allow_double: true, place_hint: "" },
+  { id: "B", label: "普通平键B型", kind: "B", guided: false, standard: "GB/T 1096-2003", places: ["mid", "end"], allow_double: true, place_hint: "" },
+  { id: "C", label: "普通平键C型", kind: "C", guided: false, standard: "GB/T 1096-2003", places: ["mid", "end"], allow_double: true, place_hint: "" },
+  { id: "导向A", label: "导向平键A型", kind: "A", guided: true, standard: "GB/T 1097-2003", places: ["mid"], allow_double: false, place_hint: "固定键固定在轴上；端置是普通平键 KEY 的画法" },
+  { id: "导向B", label: "导向平键B型", kind: "B", guided: true, standard: "GB/T 1097-2003", places: ["mid"], allow_double: false, place_hint: "固定键固定在轴上；端置是普通平键 KEY 的画法" },
+];
+let keyStyles = KEY_STYLES_FALLBACK.slice();
+const SPLINE_CUSTOM = "__custom__";   // 下拉末尾「自定义规格…」的哨兵值
+let curView = "normal";     // 当前视图（默认常规）
+let seqPreview = 0;         // 过期响应丢弃序号
+let seqParse = 0;
+let seqExpr = 0;            // 表达式粘贴解析的独立序号（不与行文本解析互相作废）
+let tPreview = 0, tParse = 0;
+let blobUrl = null;         // 上一张预览图的 object URL
+let textDirty = false;      // 文本区改过、还没回填段表（生成前先解析一次）
+
+// 新行的默认值（空白模板）
+function blankRow() {
+  return {
+    s: "30", e: "", l: "10",
+    ch: { l: { on: false, c: "2" }, r: { on: false, c: "2" } },
+    ov: { l: { on: false, b1: "" }, r: { on: false, b1: "" } },
+    m: { on: false, p: "" },
+    key: { on: false, style: "A", l: "", place: "mid", b: "", h: "", t1: "", double: false },
+    gear: { on: false, mark: "GEAR", kind: "EX", m: "3", z: "20", x: "", da: "", df: "", h: "", alpha: "" },
+    spline: { on: false, spec: "6x23x26x6", len: "30", de: "" },
+  };
+}
+
+/* ─────────────────────────── 工具 ─────────────────────────── */
+
+// 数字显示：整数不带小数点，其余抹尾零（与后端 trim 同口径）
+function fmt(v) {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "?";
+  if (Math.abs(v - Math.round(v)) < 1e-9) return String(Math.round(v));
+  return v.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function numOrNaN(v) {
+  const t = String(v == null ? "" : v).trim();
+  return t === "" ? NaN : Number(t);
+}
+
+function numTok(v) {
+  const n = numOrNaN(v);
+  return Number.isFinite(n) ? fmt(n) : String(v).trim();
+}
+
+const esc = (s) =>
+  String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+/* ─────────────────────────── 矩形花键规格表 ─────────────────────────── */
+
+// 规格表来源 = `/api/parts` 的 `families.detail_spline_rect.specs`（与零件库窗口同源，
+// 33 条 GB/T 1144 轻/中系列）；拿不到就退化成纯手输/空下拉，不阻塞页面其余功能。
+async function loadSplineSpecs() {
+  try {
+    const resp = await fetchApi("/api/parts", { cache: "no-store" }, "/api/parts");
+    if (!resp.ok) throw new Error(resp.error); // 已红框进 #status；下表降级不堵页面
+    const cat = resp.data;
+    const fam = cat && cat.families ? cat.families : {};
+    const splineFam = fam.detail_spline_rect;
+    splineSpecs = (splineFam && Array.isArray(splineFam.specs) ? splineFam.specs : [])
+      .filter((s) => s && typeof s.code === "string" && s.code !== "");
+    keyCatalog = {};
+    for (const [kind, id] of [["A", "key_1096_a"], ["B", "key_1096_b"], ["C", "key_1096_c"]]) {
+      const f = fam[id];
+      if (f) {
+        keyCatalog[kind] = {
+          sizes: Array.isArray(f.sizes) ? f.sizes : [],
+          ranges: Array.isArray(f.shaft_ranges) ? f.shaft_ranges : [],
+        };
+      }
+    }
+    keyCatalog1097 = {};
+    for (const [kind, id] of [["A", "key_1097_a"], ["B", "key_1097_b"]]) {
+      const f = fam[id];
+      if (f) {
+        keyCatalog1097[kind] = {
+          sizes: Array.isArray(f.sizes) ? f.sizes : [],
+          lengthRows: Array.isArray(f.length_rows) ? f.length_rows : [],
+        };
+      }
+    }
+    // 键型样式表：服务端（唯一元数据源）优先；缺失/空则保留兜底表。
+    keyStyles = Array.isArray(cat.key_styles) && cat.key_styles.length
+      ? cat.key_styles
+      : KEY_STYLES_FALLBACK.slice();
+  } catch (e) {
+    splineSpecs = [];
+    keyCatalog = {};
+    keyCatalog1097 = {};
+  }
+}
+
+// 轴径 d → GB/T 1095 选型行（`{d_lo,d_hi,lo_inclusive,b,t1}`；d 不在区间 → null）。
+// `key1096_shaft_ranges.csv` 是**选型依据**；t1 由后端 catalog 按 b 查 GB/T 1095 表补上。
+function shaftKeyRange(kind, d) {
+  const cat = keyCatalog[kind];
+  if (!cat || !Number.isFinite(d)) return null;
+  return cat.ranges.find((r) => {
+    const ge = r.lo_inclusive ? d >= r.d_lo - 1e-9 : d > r.d_lo + 1e-9;
+    return ge && d <= r.d_hi + 1e-9;
+  }) || null;
+}
+
+// 轴径 d → 标准键宽 b（d 不在选型表 → NaN）。
+function shaftKeyB(kind, d) {
+  const hit = shaftKeyRange(kind, d);
+  return hit ? Number(hit.b) : NaN;
+}
+
+// 平键族某型别的 b 档（含 b/h/L 系列候选与 c 附加说明）。
+function keySizeRow(kind, b) {
+  const cat = keyCatalog[kind];
+  if (!cat || !Number.isFinite(b)) return null;
+  return cat.sizes.find((s) => Math.abs(Number(s.b !== undefined ? s.b : s.d) - b) < 1e-9) || null;
+}
+
+// 1097（导向平键）某 b 档（sizes[].d = b；含 d0/l0/lengths）；拿不到 → null。
+function key1097Size(kind, b) {
+  const cat = keyCatalog1097[kind];
+  if (!cat || !Number.isFinite(b)) return null;
+  return cat.sizes.find((s) => Math.abs(Number(s.d) - b) < 1e-9) || null;
+}
+
+// 1097 长度 L → {l1,l2,l3}（26 档；表外 → null）。
+function key1097LenRow(kind, l) {
+  const cat = keyCatalog1097[kind];
+  if (!cat || !Number.isFinite(l)) return null;
+  return cat.lengthRows.find((r) => Math.abs(Number(r.l) - l) < 1e-9) || null;
+}
+
+// ── 键型样式表（表驱动）────────────────────────────────────────────
+
+// 样式 id → 样式行（未知 id 回退首行 = 普通平键A型，保证旧数据/旧链接不崩）。
+function keyStyleSpec(id) {
+  return keyStyles.find((s) => s.id === id) || keyStyles[0];
+}
+
+// 键型下拉选项（顺序/名称 = 样式表；用户 2026-09-25：不再单独出「导向」复选框）。
+function keyStyleOptionsHtml(cur) {
+  return keyStyles
+    .map((s) => `<option value="${esc(s.id)}"${s.id === cur ? " selected" : ""}>${esc(s.label)}</option>`)
+    .join("");
+}
+
+// 段表 KEY 列：键长 L 下拉（按 d 定出的 b 取平键族 L 系列 ∩ L<10b；
+// 导向时改取 GB/T 1097 长度系列 25…450，槽长 = 键长不折算）。
+function keyLengthOptionsHtml(r) {
+  const b = shaftKeyB("A", numOrNaN(r.s));
+  const spec = keyStyleSpec(r.key.style);
+  const row = spec.guided ? key1097Size(spec.kind, b) : keySizeRow(spec.kind, b);
+  const lengths = row && Array.isArray(row.lengths) ? row.lengths : [];
+  return lengths.map((L) => `<option value="${fmt(L)}"${Math.abs(Number(r.key.l) - L) < 1e-9 ? " selected" : ""}>${fmt(L)}</option>`).join("");
+}
+
+// 段表 KEY 列：只读派生 —— 由轴段直径 d 查 GB/T 1095 得 b×h（与 t1）。
+// 所选键型键长 → 显示/开槽折算长度（与后端 Keyway::effective_len 同口径）：
+// 圆弧端半径 b/2 会吃直段：中置显示 A（A 不折算 / B +b / C +b/2）；端置显示 C（B +b/2 / C 与 A 不折算）。
+function keyEffectiveLen(kind, place, l, b) {
+  if (place === "mid" && kind === "B") return l + b;
+  if (place === "mid" && kind === "C") return l + b / 2;
+  if (place === "end" && kind === "B") return l + b / 2;
+  return l;
+}
+
+function keySlotLen(kind, place, l, b, t1) {
+  const eff = keyEffectiveLen(kind, place, l, b);
+  return place === "end" ? eff + t1 : eff;
+}
+
+function keyDeriveHtml(r) {
+  const d = numOrNaN(r.s);
+  const spec = keyStyleSpec(r.key.style);
+  const range = shaftKeyRange("A", d);
+  if (!range) return spec.label + "：d" + (Number.isFinite(d) ? fmt(d) : "?") + " 不在 GB/T 1095 选型表";
+  const b = Number(range.b);
+  const t1 = range.t1 !== undefined ? Number(range.t1) : NaN;
+  const size = spec.guided ? key1097Size(spec.kind, b) : keySizeRow(spec.kind, b);
+  const hTxt = size && size.h !== undefined ? "×h" + fmt(size.h) : "×h?";
+  let txt = spec.label + "（" + spec.standard + "）：d" + fmt(d) + " → b" + fmt(b) + hTxt + (Number.isFinite(t1) ? " t1=" + fmt(t1) : "");
+  const l = numOrNaN(r.key.l);
+  if (l > 0 && Number.isFinite(b)) {
+    if (spec.guided) {
+      if (!size) return txt + "（GB/T 1097 表无此 b）";
+      const lr = key1097LenRow(spec.kind, l);
+      txt += " · 槽长 " + fmt(l) + "（= 键长 L）";
+      if (lr) txt += " · L1=" + fmt(lr.l1) + " L3=" + fmt(lr.l3);
+      txt += " · 固定螺钉孔 M" + fmt(size.d0) + "×深" + fmt(size.l0) + "×2";
+    } else {
+      txt += " · 槽长 " + fmt(keySlotLen(spec.kind, r.key.place, l, b, Number.isFinite(t1) ? t1 : 0));
+    }
+  }
+  const over = String(r.key.b).trim() !== "" || String(r.key.h).trim() !== "" ? "（覆盖）" : "";
+  return txt + over;
+}
+
+// 段表 KEY 列状态归一：勾上后若 L 不在该 b 的合法系列里，取第一个合法值。
+function normalizeKeyRow(r) {
+  if (!r.key.on) return;
+  // 样式表驱动的位置/双槽约束（导向平键只有中置；用户 2026-09-25 裁定）。
+  const spec = keyStyleSpec(r.key.style);
+  if (!spec.places.includes(r.key.place)) r.key.place = spec.places[0];
+  if (!spec.allow_double) r.key.double = false;
+  const b = shaftKeyB("A", numOrNaN(r.s));
+  const row = spec.guided ? key1097Size(spec.kind, b) : keySizeRow(spec.kind, b);
+  const lengths = row && Array.isArray(row.lengths) ? row.lengths : [];
+  if (lengths.length && !lengths.some((L) => Math.abs(Number(L) - Number(r.key.l)) < 1e-9)) {
+    r.key.l = fmt(lengths[0]);
+  }
+}
+
+// 规格代号归一：×/＊/* → x、去空白、小写（与后端 parse_code 同口径）。
+function specNorm(s) {
+  return String(s == null ? "" : s).trim().toLowerCase()
+    .replace(/[×＊*]/g, "x").replace(/\s+/g, "");
+}
+
+// 规格代号 → 表内条目；找不到 = 表外规格 → 下拉落「自定义」。
+function splineSpecHit(spec) {
+  const key = specNorm(spec);
+  return key ? (splineSpecs.find((s) => s.code === key) || null) : null;
+}
+
+// 规格代号 → N×d×D×B（只用于界面显示派生值；几何合法性仍由后端校验）。
+function parseSpecDims(spec) {
+  const parts = String(spec == null ? "" : spec).trim().split(/[xX×＊*\s]+/).filter((s) => s !== "");
+  if (parts.length !== 4) return null;
+  const [n, d, big, b] = parts.map(Number);
+  if (![n, d, big, b].every((v) => Number.isFinite(v) && v > 0)) return null;
+  return { n, d, big, b };
+}
+
+// 段表里的派生值：d（小径）/ D（大径）/ B（键宽）/ de（滚刀）/ h（齿深）/ l（收尾长度）。
+// l = √(h(2R−h))、R = de/2（与 spline.rs::runout 同式），用户不用心算。
+function splineDerived(r) {
+  const spec = String(r.spline.spec).trim();
+  const hit = splineSpecHit(spec);
+  const dims = hit ? { d: hit.d, big: hit.D, b: hit.B } : parseSpecDims(spec);
+  if (!dims) {
+    return spec === ""
+      ? "自定义规格：手输 N×d×D×B（表外必须给 de）"
+      : "规格代号要写成 N×d×D×B（例 6x23x26x6）";
+  }
+  const deRaw = String(r.spline.de).trim();
+  const de = deRaw === "" ? (hit ? hit.de : NaN) : numOrNaN(r.spline.de);
+  const h = (dims.big - dims.d) / 2;
+  let out = "d" + fmt(dims.d) + " D" + fmt(dims.big) + " B" + fmt(dims.b) + " h" + fmt(h);
+  if (Number.isFinite(de) && de > 0) {
+    out += " de" + fmt(de) + " l" + fmt(Math.sqrt(Math.max(0, h * (de - h))));
+  } else {
+    out += " de?（表外必给） l?";
+  }
+  return out;
+}
+
+// 下拉选项：表内规格（带 de 提示）+ 末尾「自定义规格…」；规格表拿不到时只剩自定义项。
+function splineOptionsHtml(current) {
+  let out = "";
+  for (const s of splineSpecs) {
+    out += `<option value="${esc(s.code)}"${s.code === current ? " selected" : ""}>`
+      + `${esc(s.code)}（${esc(s.series)}系列，de${fmt(s.de)}）</option>`;
+  }
+  out += `<option value="${SPLINE_CUSTOM}"${current === SPLINE_CUSTOM ? " selected" : ""}>自定义规格…</option>`;
+  return out;
+}
+
+function showStatus(msg, bad) {
+  // 统一走共享助手：#status 错误 = 红框红字（不再被 #status 的灰字盖住），成功 = 绿字
+  if (bad) ocsmStatusError(msg);
+  else ocsmStatusOk(msg);
+}
+
+/* ─────────────────────────── 视图开关 ─────────────────────────── */
+
+function viewLabel(key) {
+  const v = VIEWS.find((x) => x.key === key);
+  return v ? v.name : "常规";
+}
+
+// 把 `VIEW …` 写回行文本（保留其它行/注释；常规 = 删掉那行）
+function setViewInText(key) {
+  const lines = el("dsl").value.split("\n");
+  const idx = lines.findIndex((l) => /^(VIEW|视图)(\s|[=:])/i.test(l.trim()));
+  if (key === "normal") {
+    if (idx >= 0) lines.splice(idx, 1);
+  } else {
+    const line = "VIEW " + viewLabel(key);
+    if (idx >= 0) lines[idx] = line;
+    else lines.unshift(line);
+  }
+  el("dsl").value = lines.join("\n");
+}
+
+function renderViews() {
+  const row = el("viewRow");
+  row.innerHTML = "";
+  for (const v of VIEWS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn ghost" + (v.key === curView ? " on" : "");
+    b.textContent = v.name;
+    b.title = v.key === "section"
+      ? "同一套轮廓 + ANSI31 剖面线（剖面线落 5剖面线层）"
+      : "只画外形可见线";
+    b.addEventListener("click", () => {
+      if (curView === v.key) return;
+      curView = v.key;
+      setViewInText(v.key);
+      renderViews();
+      schedulePreview();   // 视图切换不走防抖也行，但统一防抖避免连点
+    });
+    row.appendChild(b);
+  }
+  el("viewName").textContent = viewLabel(curView);
+}
+
+/* ─────────────────────────── 段表渲染 ─────────────────────────── */
+
+function rowHtml(r, i) {
+  const gearOn = r.gear.on;
+  const splineOn = r.spline.on;
+  const keyOn = r.key.on;
+  const specHit = splineSpecHit(r.spline.spec);
+  const specSel = specHit ? specHit.code : SPLINE_CUSTOM;
+  const mOn = r.m.on;
+  const ovOn = r.ov.l.on || r.ov.r.on;
+  const ck = (v) => (v ? " checked" : "");
+  const dis = (v) => (v ? " disabled" : "");
+  const endCell = (kind, end, o) => {
+    const label = end.toUpperCase();
+    const extra = kind === "ov"
+      ? `<input type="number" step="0.1" min="0" data-f="ov.${end}.b1" value="${esc(o.b1)}" placeholder="默认"${dis(gearOn || mOn || splineOn)}>`
+      : `<input type="number" step="0.1" min="0" data-f="ch.${end}.c" value="${esc(o.c)}" placeholder="2"${dis(gearOn || splineOn)}>`;
+    const boxDis = kind === "ov" ? (gearOn || mOn || splineOn) : (gearOn || splineOn);
+    const boxTitle = kind === "ov"
+      ? "越程槽（b1 留空 = 按直径查 GB/T 3 表 2）"
+      : "端部倒角（C×45°）";
+    return `<div class="frow"><label class="chk"><input type="checkbox" data-f="${kind}.${end}.on" title="${boxTitle}"${ck(o.on)}${dis(boxDis)}>${label}</label>${extra}</div>`;
+  };
+  return `<tr data-row="${i}" class="${i === sel ? "sel" : ""}">
+    <td class="idx">${i + 1}</td>
+    <td><input type="number" step="0.1" min="0" data-f="s" title="起始直径 S（mm）" value="${esc(r.s)}"${dis(gearOn || splineOn)}></td>
+    <td><input type="number" step="0.1" min="0" data-f="e" title="终点直径 E（mm）；留空 = 圆柱段（E = S）" value="${esc(r.e)}" placeholder="= S"${dis(gearOn || splineOn)}></td>
+    <td><input type="number" step="0.1" min="0" data-f="l" title="段长 L（mm）" value="${esc(r.l)}"${dis(gearOn || splineOn)}></td>
+    <td class="feat">${endCell("ch", "l", r.ch.l)}${endCell("ch", "r", r.ch.r)}</td>
+    <td class="feat">${endCell("ov", "l", r.ov.l)}${endCell("ov", "r", r.ov.r)}</td>
+    <td class="feat"><div class="frow"><label class="chk"><input type="checkbox" data-f="m.on" title="螺纹段：要求 S=E；不写值 = 小径 0.85d 简化画法；M1.5 = 螺距 P 精确小径"${ck(mOn)}${dis(gearOn || ovOn || splineOn || keyOn)}>M</label>
+      <input type="number" step="0.1" min="0" data-f="m.p" value="${esc(r.m.p)}" placeholder="0.85d"${dis(gearOn || ovOn || splineOn || keyOn)}></div></td>
+    <td class="feat"><div class="frow"><label class="chk"><input type="checkbox" data-f="key.on" title="平键轴槽（与 GEAR / SPLINE / M / OV 互斥）；b×h 与 t1 由该段直径 d 查 GB/T 1095 自动定"${ck(keyOn)}${dis(gearOn || splineOn || mOn || ovOn)}>KEY</label>
+      <select data-f="key.style" title="键型（表驱动）：普通平键（GB/T 1096）A 双圆头 / B 双平头 / C 单圆头；导向平键（GB/T 1097）A/B（自动画 2 个固定螺钉螺纹孔、只有中置）；槽长按型别折算：B 中置 +b / 端置 +b/2，C 中置 +b/2 / 端置不折算"${dis(!keyOn)}>${keyStyleOptionsHtml(r.key.style)}</select>
+      <select data-f="key.place" title="位置：中置 = 槽两端封闭（居中于净圆柱）；端置 = 开在轴首/末段自由端（槽长 = 键长 + t1）；显示：中置常规侧视恒显示 A（双圆头），端置 B/C 显示 C（单圆头）；导向平键只有中置（端置禁用）"${dis(!keyOn)}><option value="mid"${r.key.place !== "end" ? " selected" : ""}>中置</option><option value="end"${r.key.place === "end" ? " selected" : ""}${keyStyleSpec(r.key.style).places.includes("end") ? "" : " disabled"}>端置</option></select></div>
+      <div class="frow"><span class="chk">L</span><select data-f="key.l" title="键长 L（1096：平键族系列∩L<10b；导向：GB/T 1097 系列 25…450∩L<10b）"${dis(!keyOn)}>${keyLengthOptionsHtml(r)}</select>
+      <label class="chk" title="双键槽：绕轴心 180° 对置（仅剖视图体现；可承受转矩约为单键联接的 1.5 倍）；导向平键不支持"><input type="checkbox" data-f="key.double"${ck(r.key.double)}${dis(!keyOn || !keyStyleSpec(r.key.style).allow_double)}>双槽</label>
+      <span class="chk key-derive" title="由轴段直径查 GB/T 1095 得 b×h；t1 按 b 查表；槽长/固定螺钉孔按所选标准派生">${keyDeriveHtml(r)}</span></div>
+      </td>
+    <td class="feat"><div class="frow"><label class="chk"><input type="checkbox" data-f="gear.on" title="齿轮 / 渐开线齿形段（与 KEY / SPLINE / M / OV 互斥）；轴段只支持模数制 M"${ck(gearOn)}${dis(splineOn || keyOn)}>GEAR</label>
+      <select data-f="gear.mark" title="MARK 画法开关：SPLINE（渐开线花键）常规侧视图画小径细实线；GEAR（齿轮）不画"${dis(!gearOn)}><option value="GEAR"${r.gear.mark === "GEAR" ? " selected" : ""}>GEAR</option><option value="SPLINE"${r.gear.mark === "SPLINE" ? " selected" : ""}>SPLINE</option></select>
+      <select data-f="gear.kind" title="内/外齿（IN = 内齿轮/内花键）"${dis(!gearOn)}><option value="EX"${r.gear.kind === "EX" ? " selected" : ""}>EX</option><option value="IN"${r.gear.kind === "IN" ? " selected" : ""}>IN</option></select></div>
+      <div class="frow"><span class="chk">m</span><input type="number" step="0.1" min="0" data-f="gear.m" title="模数 m；轴段齿形段只支持模数制 M（径节制 DP 请用齿轮生成器）" value="${esc(r.gear.m)}"${dis(!gearOn)}>
+      <span class="chk">z</span><input type="number" step="1" min="2" data-f="gear.z" title="齿数 z（≥2）" value="${esc(r.gear.z)}"${dis(!gearOn)}>
+      <span class="chk">X</span><input type="number" step="0.05" data-f="gear.x" title="变位系数 X（默认 0 = 不变位）" value="${esc(r.gear.x)}" placeholder="0" style="width:52px"${dis(!gearOn)}></div>
+      <div class="frow"><span class="chk">DA</span><input type="number" step="0.1" min="0" data-f="gear.da" title="齿顶圆直径 DA（留空 = 按 m/z/α 自动推算）" value="${esc(r.gear.da)}" placeholder="推" style="width:64px"${dis(!gearOn)}>
+      <span class="chk">DF</span><input type="number" step="0.1" min="0" data-f="gear.df" title="齿根圆直径 DF（留空 = 按 m/z/α 自动推算）" value="${esc(r.gear.df)}" placeholder="推" style="width:64px"${dis(!gearOn)}>
+      <span class="chk">H</span><input type="number" step="0.1" min="0" data-f="gear.h" title="齿宽 H（留空 = 10m）" value="${esc(r.gear.h)}" placeholder="10m" style="width:52px"${dis(!gearOn)}>
+      <span class="chk">α</span><input type="number" step="0.5" min="10.1" max="49.9" data-f="gear.alpha" value="${esc(r.gear.alpha)}" placeholder="20" title="基准齿形角，度（省略 = 20°，可给 10°<α<50°）" style="width:58px"${dis(!gearOn)}></div></td>
+    <td class="feat"><div class="frow"><label class="chk"><input type="checkbox" data-f="spline.on" title="矩形花键段（GB/T 1144 轻/中系列 33 条，规格下拉）；不能与 CH/OV/M/GEAR 同段"${ck(splineOn)}${dis(gearOn || keyOn)}>SPLINE</label></div>
+      <div class="frow"><select data-f="spline.spec" title="规格来自 GB/T 1144 轻/中系列（33 条）；选中自动带出 d/D/B/de/h/l（de 可改 = 覆盖）；表外规格选「自定义…」并必须给 de"${dis(!splineOn)}>${splineOptionsHtml(specSel)}</select></div>
+      <div class="frow"><input type="text" data-f="spline.spec" title="表外规格 N×d×D×B（必须给 de）" value="${esc(r.spline.spec)}" placeholder="自定义 N×d×D×B" style="width:128px${specHit ? ";display:none" : ""}"${dis(!splineOn)}></div>
+      <div class="frow"><span class="chk">L</span><input type="number" step="0.1" min="0" data-f="spline.len" title="满齿段长 L（段长 = L + 收尾 l）" value="${esc(r.spline.len)}" placeholder="满齿段长"${dis(!splineOn)}>
+      <span class="chk">de</span><input type="number" step="0.1" min="0" data-f="spline.de" title="滚刀直径 de；表内规格自动查表，手改 = 覆盖；表外规格必给" value="${esc(r.spline.de)}" placeholder="${specHit ? fmt(specHit.de) : "表外必给"}" style="width:52px"${dis(!splineOn)}></div>
+      <div class="frow spline-derive" title="小径 d / 大径 D / 键宽 B / 滚刀直径 de / 齿深 h / 收尾长度 l">${esc(splineDerived(r))}</div></td>
+  </tr>`;
+}
+
+function renderTable() {
+  if (!rows.length) {
+    el("segBody").innerHTML =
+      '<tr><td colspan="10" class="empty-guide">暂无轴段：点上方「+ 加行」添加第一段，' +
+      '或把表达式粘贴到下方文本框 / 表达式框。</td></tr>';
+  } else {
+    el("segBody").innerHTML = rows.map((r, i) => rowHtml(r, i)).join("");
+  }
+  updateButtons();
+}
+
+// 特征互斥：GEAR / SPLINE 各自独占；M 与 OV 不能同段（与后端校验同口径）
+function enforceExclusive(r) {
+  if (r.gear.on) {
+    r.ch.l.on = r.ch.r.on = r.ov.l.on = r.ov.r.on = r.m.on = false;
+    r.spline.on = false;
+    r.key.on = false;
+  }
+  if (r.spline.on) {
+    r.ch.l.on = r.ch.r.on = r.ov.l.on = r.ov.r.on = r.m.on = false;
+    r.gear.on = false;
+    r.key.on = false;
+  }
+  if (r.m.on) {
+    r.ov.l.on = r.ov.r.on = false;
+    r.gear.on = false;
+    r.spline.on = false;
+    r.key.on = false;
+  }
+  if (r.key.on) {
+    r.ov.l.on = r.ov.r.on = false;
+    r.m.on = false;
+    r.gear.on = false;
+    r.spline.on = false;
+  }
+  if (r.ov.l.on || r.ov.r.on) {
+    r.m.on = false;
+    r.key.on = false;
+  }
+}
+
+
+/* ─────────────────────────── 段表 → 行文本 ─────────────────────────── */
+
+function rowToDsl(r) {
+  if (r.gear.on) {
+    const mark = r.gear.mark === "SPLINE" ? "SPLINE" : "GEAR";
+    const internal = r.gear.kind === "IN";
+    const x = String(r.gear.x).trim();
+    const da = String(r.gear.da).trim();
+    const df = String(r.gear.df).trim();
+    const hasNew = mark === "SPLINE" || internal || x !== "" || da !== "" || df !== "";
+    if (!hasNew) {
+      // 旧紧凑写法保持字节不变（向后兼容；轴侧解析默认 EX/X0/DA/DF 推）。
+      let s = "GEAR M" + numTok(r.gear.m) + " Z" + numTok(r.gear.z);
+      if (String(r.gear.h).trim() !== "") s += " H" + numTok(r.gear.h);
+      if (String(r.gear.alpha).trim() !== "") s += " ALPHA" + numTok(r.gear.alpha);
+      return s;
+    }
+    // 统一齿形段：MARK KIND M Z ALPHA X DA DF [H]（BETA 轴侧固定 0，不在此编辑）。
+    let s = mark + " " + (internal ? "IN" : "EX") + " M" + numTok(r.gear.m) + " Z" + numTok(r.gear.z);
+    if (String(r.gear.alpha).trim() !== "") s += " ALPHA" + numTok(r.gear.alpha);
+    if (x !== "") s += " X" + numTok(r.gear.x);
+    if (da !== "") s += " DA" + numTok(r.gear.da);
+    if (df !== "") s += " DF" + numTok(r.gear.df);
+    if (String(r.gear.h).trim() !== "") s += " H" + numTok(r.gear.h);
+    return s;
+  }
+  if (r.spline.on) {
+    const spec = String(r.spline.spec).trim();
+    let s = "SPLINE " + spec + " L" + numTok(r.spline.len);
+    const deRaw = String(r.spline.de).trim();
+    if (deRaw !== "") {
+      // 表内规格自动填进 de 框的查表值不必写进行文本（不写 de 后端也会查表）；
+      // 手改成别的值才算覆盖，写成 `de71` 这种可复制形式。
+      const hit = splineSpecHit(spec);
+      const isTableDefault = hit && Math.abs(numOrNaN(r.spline.de) - hit.de) < 1e-9;
+      if (!isTableDefault) s += " de" + numTok(r.spline.de);
+    }
+    return s;
+  }
+  let s = "S" + numTok(r.s);
+  if (String(r.e).trim() !== "" && numOrNaN(r.e) !== numOrNaN(r.s)) s += " E" + numTok(r.e);
+  s += " L" + numTok(r.l);
+  if (r.m.on) s += String(r.m.p).trim() === "" ? " M" : " M" + numTok(r.m.p);
+  for (const end of ["l", "r"]) {
+    const E = end.toUpperCase();
+    if (r.ch[end].on) s += " CH" + numTok(r.ch[end].c) + "@" + E;
+    if (r.ov[end].on) {
+      s += " OV" + (String(r.ov[end].b1).trim() === "" ? "" : numTok(r.ov[end].b1)) + "@" + E;
+    }
+  }
+  if (r.key.on) {
+    // 新写法：键型记号直接带「导向」（`KEY 导向A 36`）；普通键仍 `KEY A 36`。
+    s += " KEY " + keyStyleSpec(r.key.style).id + " " + numTok(r.key.l);
+    if (r.key.place === "end") s += " @端";
+    // b/h 只在行里有显式值时写（默认按轴径自动定；覆盖才进 DSL）。
+    const bRaw = String(r.key.b).trim();
+    if (bRaw !== "") {
+      s += " b" + numTok(r.key.b);
+      if (String(r.key.h).trim() !== "") s += "h" + numTok(r.key.h);
+    }
+    if (String(r.key.t1).trim() !== "") s += " t1 " + numTok(r.key.t1);
+    if (r.key.double) s += " 双槽";
+  }
+  return s;
+}
+
+function regenText() {
+  el("dsl").value = rows.map(rowToDsl).join("\n");
+  el("dsl").classList.remove("bad");
+  el("dslErr").textContent = "";
+  textDirty = false;
+  schedulePreview();
+}
+
+/* ─────────────────────────── 行文本 → 段表 ─────────────────────────── */
+
+// 后端归一化模型的一段 → 表格行
+function rowFromSegment(seg) {
+  const r = blankRow();
+  if (seg.gear) {
+    r.gear.on = true;
+    r.gear.mark = seg.gear.involute ? "SPLINE" : "GEAR";
+    r.gear.kind = seg.gear.kind === "internal" ? "IN" : "EX";
+    r.gear.m = fmt(seg.gear.m);
+    r.gear.z = String(seg.gear.z);
+    r.gear.x = seg.gear.x === null || seg.gear.x === undefined || Math.abs(seg.gear.x) < 1e-12 ? "" : fmt(seg.gear.x);
+    r.gear.da = seg.gear.da === null || seg.gear.da === undefined ? "" : fmt(seg.gear.da);
+    r.gear.df = seg.gear.df === null || seg.gear.df === undefined ? "" : fmt(seg.gear.df);
+    r.gear.h = seg.gear.h === null || seg.gear.h === undefined ? "" : fmt(seg.gear.h);
+    r.gear.alpha = seg.gear.alpha === null || seg.gear.alpha === undefined ? "" : fmt(seg.gear.alpha);
+    return r;
+  }
+  if (seg.spline) {
+    r.spline.on = true;
+    r.spline.spec = seg.spline.spec || [seg.spline.n, fmt(seg.spline.d), fmt(seg.spline.big), fmt(seg.spline.b)].join("x");
+    r.spline.len = seg.spline.len === null || seg.spline.len === undefined ? "" : fmt(seg.spline.len);
+    r.spline.de = seg.spline.de === null || seg.spline.de === undefined ? "" : fmt(seg.spline.de);
+    return r;
+  }
+  r.s = fmt(seg.s);
+  r.e = fmt(seg.e);
+  r.l = fmt(seg.l);
+  const chs = seg.ch || [];
+  for (const c of chs) {
+    const end = (c.end || "R").toLowerCase();
+    if (r.ch[end]) { r.ch[end].on = true; r.ch[end].c = fmt(c.c); }
+  }
+  const ovs = seg.ov || [];
+  for (const o of ovs) {
+    const end = (o.end || "R").toLowerCase();
+    if (r.ov[end]) {
+      r.ov[end].on = true;
+      r.ov[end].b1 = o.b1 === null || o.b1 === undefined ? "" : fmt(o.b1);
+    }
+  }
+  if (seg.thread !== undefined && seg.thread !== null) {
+    r.m.on = true;
+    r.m.p = typeof seg.thread === "number" ? fmt(seg.thread) : "";
+  }
+  if (seg.keyway) {
+    r.key.on = true;
+    // 新 JSON `"type":"导向A"` 直取 id；旧 JSON `"type":"A"`+`"guided":true` 按 (kind,guided) 反查。
+    const rawType = String(seg.keyway.type || seg.keyway.kind || "A");
+    const guided = !!seg.keyway.guided;
+    const byKind = keyStyles.find((s) => s.kind === rawType.toUpperCase() && s.guided === guided);
+    const byId = keyStyles.find((s) => s.id === rawType);
+    r.key.style = (byKind || byId || keyStyles[0]).id;
+    r.key.l = fmt(seg.keyway.l);
+    r.key.place = seg.keyway.place === "end" ? "end" : "mid";
+    r.key.b = seg.keyway.b === null || seg.keyway.b === undefined ? "" : fmt(seg.keyway.b);
+    r.key.h = seg.keyway.h === null || seg.keyway.h === undefined ? "" : fmt(seg.keyway.h);
+    r.key.t1 = seg.keyway.t1 === null || seg.keyway.t1 === undefined ? "" : fmt(seg.keyway.t1);
+    r.key.double = !!seg.keyway.double;
+    // 样式表位置约束（导向只有中置）：旧 JSON 的 guided+end 也归一到允许位置。
+    if (!keyStyleSpec(r.key.style).places.includes(r.key.place)) {
+      r.key.place = keyStyleSpec(r.key.style).places[0];
+    }
+  }
+  enforceExclusive(r);
+  return r;
+}
+
+function showDslError(msg) {
+  el("dslErr").textContent = msg;
+  el("dslErr").className = "bad";
+  el("dsl").classList.add("bad");
+  // 有行号就把那行选中（不抢焦点，避免打字时跳走）
+  const m = /第\s*(\d+)\s*行/.exec(msg);
+  if (m) {
+    const line = Math.max(1, Number(m[1]));
+    const lines = el("dsl").value.split("\n");
+    let start = 0;
+    for (let i = 0; i < line - 1 && i < lines.length; i++) start += lines[i].length + 1;
+    const end = start + (lines[line - 1] || "").length;
+    try { el("dsl").setSelectionRange(start, end); } catch (e) { /* 忽略 */ }
+  }
+}
+
+function clearDslError() {
+  el("dslErr").textContent = "";
+  el("dslErr").className = "";
+  el("dsl").classList.remove("bad");
+}
+
+// 文本区 → 解析 → 回填段表（返回是否成功）
+async function refreshFromText() {
+  const text = el("dsl").value;
+  if (text.trim() === "") {
+    // 空行文本 = 空段表（打开即空；用户清空后也回到空表，不请求后端）
+    rows = [];
+    sel = 0;
+    clearDslError();
+    renderTable();
+    textDirty = false;
+    schedulePreview();
+    return true;
+  }
+  const my = ++seqParse;
+  try {
+    const r = await fetchApi("/api/shaft_parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dsl: text }),
+      cache: "no-store",
+    }, "/api/shaft_parse");
+    const j = r.data || {};
+    if (my !== seqParse) return false;
+    if (!r.ok) {
+      showDslError(r.error);
+      return false;
+    }
+    clearDslError();
+    rows = (j.segments || []).map(rowFromSegment);
+    if (j.at) { el("atx").value = fmt(j.at[0]); el("aty").value = fmt(j.at[1]); }
+    if (typeof j.rot === "number") el("rot").value = fmt(j.rot);
+    // 视图：以文本解析结果为准（文本里没 VIEW 就是常规）
+    if (typeof j.view === "string" && VIEWS.some((v) => v.key === j.view)) {
+      curView = j.view;
+    }
+    renderViews();
+    sel = Math.min(sel, rows.length - 1);
+    if (sel < 0) sel = 0;
+    renderTable();
+    textDirty = false;
+    schedulePreview();
+    return true;
+  } catch (e) {
+    if (my !== seqParse) return false;
+    showDslError("解析请求失败：" + e);
+    return false;
+  }
+}
+
+/* ─────────────────────────── 表达式互通（齿轮/花键 → 粘贴成段） ─────────────────────────── */
+
+// 粘贴表达式归一化：中文/全角空格→半角、折叠连续空白、剥命令名前缀（OCSMGEAR/OCSMSHAFT）。
+// 只做「喂给 shaft.rs 解析器前」的清洗；段语法本身仍以 /api/shaft_parse（shaft.rs）为准。
+function normalizeExpression(text) {
+  let t = String(text == null ? "" : text);
+  t = t.replace(/\r\n?/g, "\n");
+  t = t.replace(/[\u3000\u00a0\u2000-\u200a\u202f\u205f\u1680]/g, " ");
+  t = t.replace(/^\s*(?:OCSMGEAR|OCSMSHAFT)\b\s*/i, "");
+  return t
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .trim();
+}
+
+// 像不像一条齿轮/花键段表达式（决定是否拦截粘贴去解析，而不是当普通数字/文本贴进输入框）。
+function looksLikeExpression(text) {
+  return /^\s*(?:OCSMGEAR|OCSMSHAFT|GEAR|SPLINE)\b/i.test(String(text == null ? "" : text));
+}
+
+// OCSMGEAR 自带命令行语法（`OCSMGEAR <m> <z> …`）与轴段语法不同；剥掉命令名后若以
+// int/ext/内齿轮/花键/纯数字开头，就是误贴了 CLI —— 给专门指路，别只报「不识别的关键字」。
+function looksLikeGearCli(text) {
+  const first = (normalizeExpression(text).split(/\s+/)[0] || "").toLowerCase();
+  return ["int", "ext", "internal", "external", "内齿轮", "外齿轮", "花键", "内花键", "外花键"].indexOf(first) >= 0
+    || /^[-+]?\d+(\.\d+)?$/.test(first);
+}
+
+function showExprError(msg) {
+  el("exprErr").textContent = msg;
+  el("exprErr").className = "bad";
+}
+
+function clearExprError() {
+  el("exprErr").textContent = "";
+  el("exprErr").className = "";
+}
+
+// 表达式 → 段模型：复用后端 `/api/shaft_parse`（即 shaft.rs 的段解析器），前端不另写语法。
+// 返回 { ok:true, rows, view } 或 { ok:false, error }；错误里带「第 N 段：…」定位。
+async function parseExpressionToRows(text) {
+  const dsl = normalizeExpression(text);
+  if (!dsl) return { ok: false, error: "粘贴内容为空。" };
+  const my = ++seqExpr;
+  try {
+    const r = await fetchApi("/api/shaft_parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dsl }),
+      cache: "no-store",
+    }, "/api/shaft_parse");
+    const j = r.data || {};
+    if (my !== seqExpr) return { ok: false, error: "已被新的解析请求取代。" };
+    if (!r.ok) {
+      let msg = r.error;
+      if (/OCSMGEAR/i.test(String(text)) && looksLikeGearCli(text)) {
+        msg += "（检测到 OCSMGEAR 命令行语法：轴生成器只接受轴段表达式，例 `GEAR M3 Z20 H20 ALPHA20`）";
+      }
+      return { ok: false, error: "表达式解析失败：" + msg };
+    }
+    return { ok: true, rows: (j.segments || []).map(rowFromSegment) };
+  } catch (e) {
+    return { ok: false, error: "表达式解析请求失败：" + e };
+  }
+}
+
+// 解析结果写回段表：append = 末尾加段（表达式框，连续补段）；replace = 整行替换（齿轮输入框粘贴）。
+function insertParsedRows(parsed, at, mode) {
+  const list = parsed && parsed.length ? parsed : [blankRow()];
+  if (mode === "replace") rows.splice(at, 1, ...list);
+  else rows.splice(at, 0, ...list);
+  sel = mode === "replace" ? Math.min(at, rows.length - 1) : Math.min(at + list.length - 1, rows.length - 1);
+  if (sel < 0) sel = 0;
+  renderTable();
+  regenText();
+  updateButtons();
+}
+
+// 表达式框「解析并加段」：成功的段追到段表末尾，清空输入框。
+async function addExpressionFromInput() {
+  const res = await parseExpressionToRows(el("exprInput").value);
+  if (!res.ok) { showExprError(res.error); return; }
+  clearExprError();
+  insertParsedRows(res.rows, rows.length, "append");
+  el("exprInput").value = "";
+}
+
+// 在段表的 GEAR 输入框里粘贴整条表达式：整行替换成解析出的段；
+// 不是表达式（例如纯数字）则放行，照常粘贴进当前输入框。
+async function onSegmentPaste(e) {
+  const tr = e.target.closest ? e.target.closest("tr[data-row]") : null;
+  if (!tr) return;
+  const field = e.target.dataset ? e.target.dataset.f || "" : "";
+  if (field.indexOf("gear.") !== 0) return;
+  const text = e.clipboardData ? e.clipboardData.getData("text") : "";
+  if (!looksLikeExpression(text)) return;
+  if (e.preventDefault) e.preventDefault();
+  const at = Number(tr.dataset.row);
+  const res = await parseExpressionToRows(text);
+  if (!res.ok) { showExprError(res.error); return; }
+  clearExprError();
+  insertParsedRows(res.rows, at, "replace");
+}
+
+// 打开齿轮生成器：GET /gear 不带 app=1 → guide server 的 upgrade_external_page
+// 会补一个 chromium --app 独立窗口（已开着则只弹「已在新窗口打开」提示，不重复开）。
+function openGearWindow() {
+  try {
+    const w = window.open("/gear", "_blank");
+    if (!w) window.location.href = "/gear";
+  } catch (e) {
+    window.location.href = "/gear";
+  }
+}
+
+/* ─────────────────────────── 表格事件 ─────────────────────────── */
+
+function setField(r, path, value) {
+  const parts = path.split(".");
+  let obj = r;
+  for (let i = 0; i < parts.length - 1; i++) obj = obj[parts[i]];
+  obj[parts[parts.length - 1]] = value;
+}
+
+function onTableClick(e) {
+  const tr = e.target.closest("tr[data-row]");
+  if (!tr) return;
+  sel = Number(tr.dataset.row);
+  // 只换选中高亮、**不重渲染**：否则点进输入框会因重渲染丢焦点。
+  el("segBody").querySelectorAll("tr").forEach((x) => x.classList.toggle("sel", x === tr));
+  updateButtons();
+}
+
+function onTableInput(e) {
+  const tr = e.target.closest("tr[data-row]");
+  if (!tr) return;
+  const r = rows[Number(tr.dataset.row)];
+  if (!r) return;
+  const field = e.target.dataset.f;
+  if (!field) return;
+  // 规格下拉：表内规格 → 自动填查表 de（仍可手改 = 覆盖）；「自定义…」→ 清空 de、露出文本框。
+  if (field === "spline.spec" && e.target.tagName === "SELECT") {
+    sel = Number(tr.dataset.row);
+    const hit = splineSpecHit(e.target.value);
+    if (e.target.value === SPLINE_CUSTOM || !hit) {
+      r.spline.spec = e.target.value === SPLINE_CUSTOM ? "" : String(e.target.value);
+      r.spline.de = "";
+    } else {
+      r.spline.spec = hit.code;
+      r.spline.de = fmt(hit.de);   // 自动生成：de = GB/T 10952 查表值
+    }
+    renderTable();
+    regenText();
+    return;
+  }
+  const isCheck = e.target.type === "checkbox";
+  setField(r, field, isCheck ? e.target.checked : e.target.value);
+  // 键型样式表驱动联动（位置/双槽约束）在 normalizeKeyRow 里统一处理。
+  if (field === "s" || field.indexOf("key.") === 0) normalizeKeyRow(r);
+  if (isCheck) {
+    sel = Number(tr.dataset.row);
+    enforceExclusive(r);
+    // SPLINE 新勾上且规格在表内：de 也自动填查表值（仍可手改 = 覆盖）。
+    if (field === "spline.on" && r.spline.on) {
+      const hit = splineSpecHit(r.spline.spec);
+      if (hit && String(r.spline.de).trim() === "") r.spline.de = fmt(hit.de);
+    }
+    renderTable();   // 勾选会改 disabled 状态 → 整表重渲染（点选不丢内容）
+  } else if (field.indexOf("key.") === 0) {
+    // KEY 列：只读的 b×h/t1 派生与 B/端置警示随选择重算。
+    renderTable();
+  }
+  regenText();
+}
+
+function updateButtons() {
+  el("delRow").disabled = rows.length === 0;
+  el("upRow").disabled = sel <= 0;
+  el("downRow").disabled = sel >= rows.length - 1;
+}
+
+function onAddRow() {
+  if (!rows.length) {
+    rows.push(blankRow());   // 空表：第一段落在 0 行
+    sel = 0;
+  } else {
+    rows.splice(sel + 1, 0, blankRow());
+    sel += 1;
+  }
+  renderTable();
+  regenText();
+  updateButtons();
+}
+
+function onDelRow() {
+  if (!rows.length) return;
+  if (rows.length === 1) {
+    rows[0] = blankRow();
+  } else {
+    rows.splice(sel, 1);
+    if (sel >= rows.length) sel = rows.length - 1;
+  }
+  renderTable();
+  regenText();
+  updateButtons();
+}
+
+function onCopyRow() {
+  if (!rows.length) return;
+  rows.splice(sel + 1, 0, JSON.parse(JSON.stringify(rows[sel])));
+  sel += 1;
+  renderTable();
+  regenText();
+  updateButtons();
+}
+
+function onMoveRow(delta) {
+  const to = sel + delta;
+  if (to < 0 || to >= rows.length) return;
+  const tmp = rows[sel];
+  rows[sel] = rows[to];
+  rows[to] = tmp;
+  sel = to;
+  renderTable();
+  regenText();
+  updateButtons();
+}
+
+/* ─────────────────────────── 预览（/api/shaft_preview） ─────────────────────────── */
+
+function showPreviewError(msg) {
+  el("perr").textContent = "预览失败：" + msg;
+  el("perr").className = "bad";
+}
+
+function clearPreviewError() {
+  el("perr").textContent = "";
+  el("perr").className = "";
+}
+
+// 出错时把 `第 N 段` 对应行标红（几何错误的定位）
+function markRowsFromError(msg) {
+  document.querySelectorAll("tr.bad").forEach((x) => x.classList.remove("bad"));
+  const m = /第\s*(\d+)\s*段/.exec(msg || "");
+  if (!m) return;
+  const tr = el("segBody").querySelector('tr[data-row="' + (Number(m[1]) - 1) + '"]');
+  if (tr) tr.classList.add("bad");
+}
+
+async function fetchPreview() {
+  const text = el("dsl").value;
+  if (text.trim() === "") {
+    // 空段表：不请求后端，给中性提示（打开即空表；不报红）
+    clearPreviewError();
+    el("perr").textContent = "段表为空：点「+ 加行」添加第一段，或把表达式粘贴到下方文本框 / 表达式框。";
+    el("perr").className = "";
+    return;
+  }
+  const my = ++seqPreview;
+  // 共享取数助手（文本端点：SVG）：失败先 text() 再解 JSON error，红框进 #status + 本区 #perr
+  const r = await fetchText("/api/shaft_preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dsl: text, view: curView }),
+    cache: "no-store",
+  }, "/api/shaft_preview");
+  if (my !== seqPreview) return;
+  if (!r.ok) {
+    showPreviewError(r.error);
+    markRowsFromError(r.error);
+    return;
+  }
+  const svg = r.data;
+  clearPreviewError();
+  markRowsFromError("");
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+  if (blobUrl) URL.revokeObjectURL(blobUrl);
+  blobUrl = url;
+  el("preview").src = url;
+}
+
+function schedulePreview() {
+  clearTimeout(tPreview);
+  tPreview = setTimeout(fetchPreview, 220);
+}
+
+/* ─────────────────────────── 段表 → JSON 模型 ─────────────────────────── */
+
+// 收集段表为 JSON 模型；非法输入写状态行并返回 null
+function modelFromRows() {
+  const segments = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const at = "第 " + (i + 1) + " 行：";
+    if (r.spline.on) {
+      const spec = String(r.spline.spec).trim();
+      const len = numOrNaN(r.spline.len);
+      if (!spec) { showStatus(at + "SPLINE 规格代号不能为空（例 6x23x26x6）。", true); return null; }
+      if (!(len > 0)) { showStatus(at + "SPLINE 的 L（满齿段长）必须 > 0。", true); return null; }
+      const spline = { spec, len };
+      const deRaw = String(r.spline.de).trim();
+      if (deRaw !== "") {
+        const de = numOrNaN(r.spline.de);
+        if (!(de > 0)) { showStatus(at + "SPLINE 的 de 覆盖必须 > 0（留空 = 按规格查表）。", true); return null; }
+        // 表内规格自动填的 de（= 查表值）不进模型：不传 de 后端同样查表；
+        // 改了才当覆盖传（与行文本口径一致）。
+        const hit = splineSpecHit(spec);
+        if (!(hit && Math.abs(de - hit.de) < 1e-9)) spline.de = de;
+      }
+      segments.push({ spline });
+      continue;
+    }
+    if (r.gear.on) {
+      const m = numOrNaN(r.gear.m);
+      const z = Math.round(numOrNaN(r.gear.z));
+      const hRaw = String(r.gear.h).trim();
+      const h = hRaw === "" ? null : numOrNaN(r.gear.h);
+      const aRaw = String(r.gear.alpha).trim();
+      const alpha = aRaw === "" ? null : numOrNaN(r.gear.alpha);
+      if (!(m > 0) || !Number.isFinite(z) || z < 2 || (h !== null && !(h > 0))
+          || (alpha !== null && !(alpha > 10 && alpha < 50))) {
+        showStatus(at + "GEAR 参数非法（m > 0、z ≥ 2、H 留空 = 10m 或 > 0、α 留空 = 20° 或 10°<α<50°）。", true);
+        return null;
+      }
+      const gear = { m, z };
+      if (h !== null) gear.h = h;
+      if (alpha !== null) gear.alpha = alpha;
+      if (r.gear.mark === "SPLINE") gear.involute = true;
+      if (r.gear.kind === "IN") gear.kind = "internal";
+      const xRaw = String(r.gear.x).trim();
+      const daRaw = String(r.gear.da).trim();
+      const dfRaw = String(r.gear.df).trim();
+      if (xRaw !== "") gear.x = numOrNaN(r.gear.x);
+      if (daRaw !== "") gear.da = numOrNaN(r.gear.da);
+      if (dfRaw !== "") gear.df = numOrNaN(r.gear.df);
+      segments.push({ gear });
+      continue;
+    }
+    const s = numOrNaN(r.s);
+    const l = numOrNaN(r.l);
+    if (!(s > 0) || !(l > 0)) {
+      showStatus(at + "S（起始直径）与 L（段长）必须是正数。", true);
+      return null;
+    }
+    const seg = { s, l };
+    const eRaw = String(r.e).trim();
+    const e = eRaw === "" ? s : numOrNaN(r.e);
+    if (!(e > 0)) {
+      showStatus(at + "E（终点直径）必须 > 0（留空 = 圆柱段）。", true);
+      return null;
+    }
+    if (e !== s) seg.e = e;
+    const fail = (why) => { showStatus(at + why, true); return null; };
+    const ch = [];
+    for (const end of ["l", "r"]) {
+      if (!r.ch[end].on) continue;
+      const c = numOrNaN(r.ch[end].c);
+      if (!(c > 0)) return fail("CH 倒角的 C 必须 > 0。");
+      ch.push({ c, end: end.toUpperCase() });
+    }
+    if (ch.length) seg.ch = ch;
+    const ov = [];
+    for (const end of ["l", "r"]) {
+      if (!r.ov[end].on) continue;
+      const b1Raw = String(r.ov[end].b1).trim();
+      if (b1Raw === "") ov.push({ end: end.toUpperCase() });
+      else {
+        const b1 = numOrNaN(r.ov[end].b1);
+        if (!(b1 > 0)) return fail("OV 越程槽的 b1 必须 > 0（留空 = 按直径查表）。");
+        ov.push({ b1, end: end.toUpperCase() });
+      }
+    }
+    if (ov.length) seg.ov = ov;
+    if (r.m.on) {
+      const pRaw = String(r.m.p).trim();
+      if (pRaw === "") seg.thread = true;
+      else {
+        const p = numOrNaN(r.m.p);
+        if (!(p > 0)) return fail("M 螺纹段的螺距 P 必须 > 0（留空 = 小径 0.85d 简化画法）。");
+        seg.thread = p;
+      }
+    }
+    if (r.key.on) {
+      const kl = numOrNaN(r.key.l);
+      if (!(kl > 0)) return fail("平键的键长 L 必须 > 0（GB/T 1096 标准系列）。");
+      const spec = keyStyleSpec(r.key.style);
+      // JSON 保持既有 schema（`type` + `guided`）：新/旧读取方都能用。
+      const keyway = { type: spec.kind, l: kl, place: r.key.place === "end" ? "end" : "mid" };
+      // b×h 默认按轴段直径由后端查 GB/T 1095 定；行里有显式值时才作为覆盖送去校验。
+      const bRaw = String(r.key.b).trim();
+      if (bRaw !== "") {
+        const b = numOrNaN(r.key.b);
+        if (!(b > 0)) return fail("平键的 b 覆盖必须 > 0。");
+        keyway.b = b;
+        if (String(r.key.h).trim() !== "") keyway.h = numOrNaN(r.key.h);
+      }
+      const t1Raw = String(r.key.t1).trim();
+      if (t1Raw !== "") {
+        const t1 = numOrNaN(r.key.t1);
+        if (!(t1 > 0)) return fail("平键的 t1 覆盖必须 > 0（留空 = 按 b 查 GB/T 1095 表）。");
+        keyway.t1 = t1;
+      }
+      if (r.key.double) keyway.double = true;
+      if (spec.guided) keyway.guided = true;
+      seg.keyway = keyway;
+    }
+    segments.push(seg);
+  }
+  if (!segments.length) {
+    showStatus("至少要有一段（加行或粘贴行文本）。", true);
+    return null;
+  }
+  return { segments };
+}
+
+/* ─────────────────────────── 生成到图纸（/api/shaft_export） ─────────────────────────── */
+
+async function exportToDrawing() {
+  // 文本区刚改过还没回填 → 先解析一次，保证段表=文本
+  if (textDirty) {
+    const ok = await refreshFromText();
+    if (!ok) { showStatus("行文本还有解析错误，先改对再生成。", true); return; }
+  }
+  const model = modelFromRows();
+  if (!model) return;
+  model.view = curView;   // 视图随选择器走（预览/导出同一口径）
+  const xr = String(el("atx").value).trim();
+  const yr = String(el("aty").value).trim();
+  if (xr !== "" || yr !== "") {
+    if (xr === "" || yr === "") { showStatus("落点 at 的 x、y 要么都填，要么都留空。", true); return; }
+    const x = numOrNaN(xr), y = numOrNaN(yr);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { showStatus("落点 at 坐标不是数字。", true); return; }
+    model.at = [x, y];
+  }
+  const rotRaw = String(el("rot").value).trim();
+  if (rotRaw !== "") {
+    const rot = numOrNaN(rotRaw);
+    if (!Number.isFinite(rot)) { showStatus("rot 不是数字。", true); return; }
+    model.rot = rot;
+  }
+  if (TAB) model.tab = Number(TAB);
+  showStatus("生成中…", false);
+  const r = await fetchApi("/api/shaft_export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(model),
+  }, "/api/shaft_export");
+  if (!r.ok) {
+    showStatus(r.error, true); // 后端 error 原样透出（共享助手已先红框写 #status）
+    markRowsFromError(r.error);
+    return;
+  }
+  const msg = r.data.message || "已生成到图纸";
+  showStatus(msg, false);
+  // 与齿轮/零件库同款：成功后自动关窗；被浏览器拒绝时提示手动切回
+  setTimeout(() => {
+    try { window.close(); } catch (e) { /* 忽略 */ }
+    showStatus(msg + "（若本窗口未自动关闭，请 Alt+Tab 切回图纸继续）", false);
+  }, 300);
+}
+
+/* ─────────────────────────── 心跳保活 ─────────────────────────── */
+
+function ping(bye) {
+  try { fetch("/api/page_ping?p=shaft" + (bye ? "&bye=1" : ""), { cache: "no-store" }); } catch (e) {}
+}
+
+/* ─────────────────────────── 初始化 ─────────────────────────── */
+(async function init() {
+  window.addEventListener("error", (e) => showStatus("脚本错误：" + e.message, true));
+  ping(false);
+  setInterval(() => ping(false), 5000);
+  window.addEventListener("beforeunload", () => ping(true));
+  window.addEventListener("pagehide", () => ping(true));
+
+  // 段表事件（委托）：点选行；input/change 改状态
+  el("segBody").addEventListener("click", onTableClick);
+  el("segBody").addEventListener("input", onTableInput);
+  el("segBody").addEventListener("change", onTableInput);
+
+  el("addRow").addEventListener("click", onAddRow);
+  el("delRow").addEventListener("click", onDelRow);
+  el("copyRow").addEventListener("click", onCopyRow);
+  el("upRow").addEventListener("click", () => onMoveRow(-1));
+  el("downRow").addEventListener("click", () => onMoveRow(1));
+
+  // 行文本：改文本 → 防抖解析回填 + 预览；失焦/回车不等防抖
+  el("dsl").addEventListener("input", () => {
+    textDirty = true;
+    clearTimeout(tParse);
+    clearTimeout(tPreview);
+    tParse = setTimeout(refreshFromText, 300);
+    tPreview = setTimeout(fetchPreview, 250);
+  });
+  el("dsl").addEventListener("blur", () => {
+    clearTimeout(tParse);
+    clearTimeout(tPreview);
+    refreshFromText().then((ok) => { if (ok) fetchPreview(); });
+  });
+
+  el("out").addEventListener("click", exportToDrawing);
+
+  // 表达式互通：表达式框（粘贴/回车/按钮 → 末尾加段）+ 段表齿轮输入框整行替换 + 开齿轮窗口
+  el("exprAdd").addEventListener("click", addExpressionFromInput);
+  el("openGear").addEventListener("click", openGearWindow);
+  el("exprInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addExpressionFromInput(); });
+  el("exprInput").addEventListener("paste", (e) => {
+    const text = e.clipboardData ? e.clipboardData.getData("text") : "";
+    if (!looksLikeExpression(text)) return;
+    if (e.preventDefault) e.preventDefault();
+    el("exprInput").value = text;
+    addExpressionFromInput();
+  });
+  el("segBody").addEventListener("paste", onSegmentPaste);
+
+  // 初始：规格表（下拉数据源）→ **空段表**（不预填示例；加行/粘贴表达式开始）
+  renderViews();
+  await loadSplineSpecs();
+  rows = [];
+  sel = 0;
+  clearDslError();
+  renderTable();
+  updateButtons();
+  await fetchPreview();   // 空表 → 中性提示（不请求后端）
+})();
+</script>
+</body>
+</html>

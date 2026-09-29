@@ -1,0 +1,13 @@
+[package]
+name = "ocs_ocsm_mcp"
+version = "0.1.0"
+edition = "2021"
+description = "OCSM MCP 服务器（独立二进制，标准 MCP stdio；经 TCP 桥接回 OCSM 插件的标注更新服务器）"
+license = "GPL-3.0-only"
+
+[[bin]]
+name = "ocs_ocsm_mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"

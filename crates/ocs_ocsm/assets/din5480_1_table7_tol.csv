@@ -1,0 +1,15 @@
+# DIN 5480-1:2006-03 Tabelle 7 下段「Maßtoleranzen / Richtwerte für Einzelabweichungen」的**抽到的锚点**。
+# 全表体（8 个公差等级 × 3 模数组 × 7 直径档 × {Tact,Teff,Fp,fp,Fα,Fβ}）在扫描件里字高仅 ~2pt、
+# 本次只提取到两个已完整算例可反推的等级（6–9），10/11 级及非 1,75–4 模数组如实留空（卡内显示「—」）。
+# Tact=公差 actual；Teff=公差 effective；TG=Tact+Teff。
+# 来源 ①：DIN 5480-1:2006 Bild 6 示例（N120×3×38×9H / W120×3×38×8f）—— hub 9H: TG=0,090/Tact=0,056；shaft 8f: TG=0,063/Tact=0,040；
+# 来源 ②：KISSsoft 样张报告（kadkraft_Splines.pdf，DIN 5480:2006）W70×3×22×6f / N70×3×22×7H —— shaft 6f: Tol.Svmax/min=-0,0250/-0,0350；hub 7H: Tol.Emax/min=+0,0400/+0,0150；
+#         由 Tol. 差值反推 Teff、TG，与 TG/Tact≈1,6（§10.4）一致。
+# 口径：同一等级 Tact/Teff 内外同值（§10.4「公差等级决定 Tact/Teff」）；示例只能单侧核对（6=轴、7=孔、8=轴、9=孔），跨侧同值是标准口径而非本次实锚，标注见 note。
+# columns: grade,module_group,d_b_anchor,tact_mm,teff_mm,tg_mm,source,note
+"6","1,75–4","dB=70（50<dB≤100）","0.018","0.010","0.028","KISSsoft 样张报告 kadkraft_Splines.pdf（DIN 5480:2006）W70×3×22×6f","Tol.Svmax/min=-0,0250/-0,0350 ⇒ As=-0,025、Teff=0,010、TG=0,028（轴侧实锚）"
+"7","1,75–4","dB=70（50<dB≤100）","0.025","0.015","0.040","KISSsoft 样张报告 kadkraft_Splines.pdf（DIN 5480:2006）N70×3×22×7H","Tol.Emax/min=+0,0400/+0,0150 ⇒ Ae=0、Teff=0,015、TG=0,040（孔侧实锚）"
+"8","1,75–4","dB=120（100<dB≤200）","0.040","0.023","0.063","DIN 5480-1:2006 Bild 6 示例 W120×3×38×8f","Bild 6 明示 Tact=0,040；svmax−smin=TG=0,063 ⇒ Teff=0,023（轴侧实锚）"
+"9","1,75–4","dB=120（100<dB≤200）","0.056","0.034","0.090","DIN 5480-1:2006 Bild 6 示例 N120×3×38×9H","Bild 6 明示 Tact=0,056；emax−emin=TG=0,090 ⇒ Teff=0,034（孔侧实锚）"
+"10","1,75–4","—","","","","待抽（Table 7 下段数值表体未逐格抽取）","无算例可反推 ⇒ 卡内「—」，可用 tactn/teffn/tactw/teffw 显式覆盖"
+"11","1,75–4","—","","","","待抽（Table 7 下段数值表体未逐格抽取）","无算例可反推 ⇒ 卡内「—」，可用 tactn/teffn/tactw/teffw 显式覆盖"

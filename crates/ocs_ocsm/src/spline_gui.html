@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.spline.h1}}</title>
+<style>
+  /* 样式与 hole_gui.html / gear_gui.html / shaft_gui.html 同款：同一套配色、圆角与控件尺寸 */
+  :root { color-scheme: light; }
+  body { font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 14px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 350px);
+          gap: 10px; align-items: start; }
+  .card { background: #fff; border: 1px solid #d9dee5; border-radius: 8px; padding: 10px 12px; }
+  /* 常显/底栏/状态跨两列；卡类型一行占满（⑤ 闭合态看全卡名） */
+  .card.top, .card.bot, #status, .hint { grid-column: 1 / -1; }
+  #reportCard { grid-column: 1 / -1; }
+  #reportMd { margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 58vh;
+              overflow: auto; background: #fafbfc; border: 1px solid #e2e6ea; border-radius: 6px;
+              padding: 8px; font-size: 12px; line-height: 1.6;
+              font-family: "SFMono-Regular", Consolas, monospace; }
+  .typebar { grid-column: 1 / -1; display: grid; grid-template-columns: 68px minmax(0, 1fr);
+             gap: 8px; align-items: center; }
+  .typebar label { margin: 0; }
+  /* 面板本身不生成盒子：子卡片直接落进上面的两列网格 */
+  #splinePanel, #cardPanel { display: contents; }
+  /* 参数/表单在左列；结果预览在右列（④ 左右两列各自按内容自适应高度） */
+  .card.mid { grid-column: 1; align-self: start; }
+  .formmid { grid-template-columns: 1fr; }
+  .card.formmid { grid-template-columns: 1fr; }
+  .itemsCard { grid-column: 2; grid-row: 3; align-self: start; }
+  label { display: block; font-size: 12px; color: #666; margin: 6px 0 2px; }
+  select, input[type=number], input[type=text], textarea { padding: 4px 6px; border: 1px solid #c6ccd4;
+           border-radius: 4px; font-size: 13px; box-sizing: border-box; background: #fff; }
+  select { width: 100%; }
+  textarea { width: 100%; resize: vertical; font-family: "SFMono-Regular", Consolas, monospace;
+             font-size: 12.5px; line-height: 1.5; }
+  input[disabled], select[disabled], input[readonly], textarea[disabled] { background: #f1f3f5; color: #999; cursor: not-allowed; }
+  .top { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+  .params { display: grid; grid-template-columns: 68px 1fr 68px 1fr; gap: 6px 8px; align-items: center; }
+  .params label { margin: 0; }
+  .chk { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #444;
+         margin: 4px 0; cursor: pointer; }
+  .chk input { margin: 0; }
+  .mid { display: grid; grid-template-columns: 1fr 340px; gap: 14px; align-items: start; }
+  .numrow { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+  .numrow input[type=number] { width: 110px; }
+  .chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; min-height: 28px; }
+  .chip { border: 1px solid #c6ccd4; background: #f8fafc; border-radius: 14px;
+          padding: 4px 12px; font-size: 13px; cursor: pointer; }
+  .chip.on { background: #1e6fff; border-color: #1e6fff; color: #fff; }
+  .chip[disabled] { color: #aaa; cursor: not-allowed; }
+  .readout { margin-top: 8px; font-size: 12.5px; color: #444; line-height: 1.9; }
+  .readout b { color: #1a4fbf; font-weight: 600; }
+  .unit { font-size: 12px; color: #888; }
+  #items { border: 1px solid #e2e6ea; border-radius: 6px; max-height: 62vh; overflow: auto; }
+  #items .row { display: grid; grid-template-columns: 1fr 150px; gap: 8px;
+                padding: 3px 8px; font-size: 12.5px; border-bottom: 1px solid #f0f2f5; }
+  #items .row:last-child { border-bottom: none; }
+  #items .row:nth-child(odd) { background: #fafbfc; }
+  #items .k { color: #555; }
+  #items .v { color: #1a4fbf; text-align: right; font-weight: 600; }
+  .bot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .bot input[type=number] { width: 92px; }
+  .btn { border: none; border-radius: 6px; padding: 8px 20px; font-size: 14px; cursor: pointer;
+         background: #1e6fff; color: #fff; }
+  .btn.ghost { background: #e4e7ec; color: #333; }
+  .btn[disabled] { background: #9db9e8; cursor: not-allowed; }
+  #status { font-size: 12.5px; margin-top: 6px; min-height: 16px; white-space: pre-wrap; color: #555; }
+  .ok { color: #1a7f37; } .bad { color: #d1242f; } .warn { color: #b26a00; }
+  .hint { font-size: 11.5px; color: #999; margin-top: 4px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>{{i18n:gui.spline.h1}}</h1>
+
+<div class="wrap">
+  <!-- ⓪ 卡类型（共用；表驱动。GB 花键是“专用面板”= 统一外观基准，其余卡共用下面的通用骨架） -->
+  <div class="card typebar">
+    <label for="cardType">卡类型</label><select id="cardType" title="智能卡片类型（表驱动；以后加表格/铭牌即多一项）"></select>
+  </div>
+
+  <div id="splinePanel">
+  <!-- ① 等级/配合/压力角/齿根（方向由卡类型决定，面板不再放内外/体系选择） -->
+  <div class="card top">
+    <div class="params">
+      <label>公差等级</label><select id="grade"></select>
+      <label>配合类别</label><select id="fit"></select>
+      <label>压力角 αD</label><select id="alpha"></select>
+      <label>齿根形式</label><select id="root"></select>
+    </div>
+  </div>
+
+  <!-- ② 齿形表达式（反解 m/z/αD/x/Da/Df）+ 量棒 Dp 点选 -->
+  <div class="card mid">
+    <div>
+      <label>齿形表达式（九字段；可从轴/齿轮生成器 GUI 复制）</label>
+      <textarea id="expr" rows="2" spellcheck="false"
+        placeholder="SPLINE IN M3 Z20 ALPHA30 X0 DA65.4 DF57.3436 BETA0 H30"></textarea>
+      <div class="readout" id="resolved">
+        <div>反解：模数 m <b id="mOut">—</b><span class="unit"> mm</span>　齿数 z <b id="zOut">—</b>　压力角 αD <b id="alphaOut">—</b><span class="unit">°</span>　变位 x <b id="xOut">—</b></div>
+        <div>表达式大径 Da <b id="daOut">—</b><span class="unit"> mm</span>　小径 Df <b id="dfOut">—</b><span class="unit"> mm</span></div>
+        <div>齿根形式 <b id="rootOut">—</b></div>
+      </div>
+    </div>
+    <div>
+      <label id="pinLabel">量棒直径 Dp</label>
+      <div class="chips" id="dpChoices"></div>
+      <div class="numrow">
+        <label class="chk" style="margin:0"><input type="checkbox" id="dpManualOn">手填</label>
+        <input type="number" id="dpManual" step="0.01" min="0" placeholder="系列值">
+      </div>
+      <div class="readout">
+        <div><span id="dpLabel">量棒直径 Dp</span>：<b id="dpOut">—</b> mm</div>
+        <div><span id="mdLabel">测量跨棒距 Md</span>：<b id="mdOut">—</b> mm <span class="unit" id="mdRange"></span></div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /splinePanel -->
+
+  <!-- ①b 通用卡片面板（表驱动）：字段/默认值/提示全部来自 card_types[].form；
+       与 GB 面板同一套分区（顶部参数 / 中部主输入+读数 / 结果 / 底部按钮），
+       以后加卡只加字段清单，不再手写 HTML。 -->
+  <div id="cardPanel" style="display:none">
+    <div class="card top">
+      <div class="params" id="formParams"></div>
+    </div>
+    <div class="card mid formmid">
+      <div id="formMain"></div>
+      <div>
+        <label>结果读数</label>
+        <div class="readout" id="cardReadout"></div>
+        <div class="hint" id="cardHint"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 实时结果（公式/口径/来源在每行 title 悬停里；卡页下与表单并排） -->
+  <div class="card itemsCard">
+    <label id="itemsLabel">结果预览</label>
+    <div id="items"></div>
+  </div>
+
+  <!-- ④ 插入点/旋转 + 出表 -->
+  <div class="card bot">
+    <label style="margin:0">插入点 at</label>
+    <input type="number" id="atX" placeholder="x" step="0.1">
+    <input type="number" id="atY" placeholder="y" step="0.1">
+    <label style="margin:0">旋转 rot</label>
+    <input type="number" id="rot" value="0" step="1">
+    <span style="flex:1"></span>
+    <button type="button" class="btn ghost" id="report" title="按当前卡同一份计算出 Markdown 计算书（公式/代入/结果/来源）">{{i18n:gui.spline.report}}</button>
+    <button type="button" class="btn" id="ok">{{i18n:gui.spline.export}}</button>
+    <button type="button" class="btn ghost" id="cancel">{{i18n:gui.spline.cancel}}</button>
+  </div>
+  <!-- 计算书面板：按钮生成；可选「摘要表落图纸」= 本卡参数表（同一份计算的 ATTRIB）。 -->
+  <div class="card" id="reportCard" style="display:none">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <label style="margin:0" id="reportTitle">计算书</label>
+      <span style="flex:1"></span>
+      <button type="button" class="btn ghost" id="reportCopy" title="复制 Markdown 原文">{{i18n:gui.spline.copy}}</button>
+      <button type="button" class="btn" id="reportSummary" title="把本卡参数表插入图纸（摘要表 = 计算书关键项；与计算书同一份计算）">{{i18n:gui.spline.summary}}</button>
+      <button type="button" class="btn ghost" id="reportClose">{{i18n:gui.spline.close}}</button>
+    </div>
+    <pre id="reportMd"></pre>
+  </div>
+  <div id="status"></div>
+  <div class="hint">粘齿形表达式 → 定等级·配合·齿根（内卡选或填量棒 Dp）→ 点「出表」回图纸放置；
+    点「计算书」查看与卡片同一份计算的 Markdown（可复制，或「摘要表落图纸」= 本卡参数表）。
+    切到其它卡后，字段由卡类型表统一下发（同一套外观与按钮位置）。</div>
+</div>
+
+<script src="/ocsm_gui_common.js"></script>
+<script>
+(() => {
+"use strict";
+// 窗口钉在哪张图纸（插件开窗时写的 tab=）：出表时带回给插件，多张图不串。
+const TAB = new URLSearchParams(location.search).get("tab");
+// 可选深链：`?card=<卡类型 id>`（书签/截图定位；缺省第一张卡）。
+const CARD_PARAM = new URLSearchParams(location.search).get("card");
+const el = (id) => document.getElementById(id);
+let OPT = null;      // /api/spline_options（卡类型表 + 体系 → 方向 → 等级/配合/齿根/21 项公式口径）
+let CARD = null;     // 当前卡片类型（表驱动；清单由 /api/spline_options 下发）
+let SIDE = null;     // 当前方向（由卡类型固定；面板不再选内外）
+let dpSel = null;    // null = 标准解；数字 = 点选/手填的 Dp
+let timer = 0;
+
+// 卡类型 → 面板：花键卡（renderer=spline_table）走专用面板（统一外观的基准）；
+// 其余卡 = 通用骨架，字段清单由 card_types[].form 下发（页面不含任何卡专属 HTML）。
+function panelOf(card) {
+  return (card && card.renderer === 'spline_table') ? 'spline' : 'form';
+}
+function formOf(card) { return (card && card.form) || null; }
+
+// ── 通用表单渲染（表驱动）────────────────────────────────────────────
+const FORM_CTL = new Map(); // 字段 key → 控件（model/preview 从这读，不依赖 DOM 查询）
+function controlId(key) { return 'f_' + key; }
+// 动态选项（清单在后端选项表的对应段里；页面只做映射，不写死取值）
+function dynamicOptions(src) {
+  const an = (OPT && OPT.ansi_card) || {};
+  const nc = (OPT && OPT.nf_card) || {};
+  const ne = (OPT && OPT.nf_ext_card) || {};
+  if (src === 'ansi_profiles') {
+    return (an.profiles || []).map((p) => ({ value: p.id, label: p.id + '（' + fmt(p.alpha) + '°）' }));
+  }
+  if (src === 'nf_centering') return (nc.centering || []).map((c) => ({ value: c.id, label: c.label }));
+  if (src === 'nf_roots') return (nc.roots || []).map((c) => ({ value: c.id, label: c.label }));
+  // NF 外卡：定心/齿根清单属它自己（齿面定心公式与内卡不同，不能借用内卡文案）。
+  if (src === 'nf_ext_centering') return (ne.centering || []).map((c) => ({ value: c.id, label: c.label }));
+  if (src === 'nf_ext_roots') return (ne.roots || []).map((c) => ({ value: c.id, label: c.label }));
+  return [];
+}
+// 重建当前卡的表单：顶部参数区 + 中部主输入区；标签/控件/提示一律照 form 字段清单。
+function renderCardForm() {
+  const params = el('formParams');
+  const main = el('formMain');
+  params.innerHTML = '';
+  main.innerHTML = '';
+  FORM_CTL.clear();
+  const f = formOf(CARD);
+  if (!f) return;
+  for (const fld of (f.fields || [])) {
+    const host = fld.kind === 'textarea' ? main : params;
+    const lab = document.createElement('label');
+    lab.textContent = fld.label;
+    lab.title = fld.title || '';
+    host.appendChild(lab);
+    let ctl;
+    if (fld.kind === 'select') {
+      ctl = document.createElement('select');
+      const opts = (fld.options && fld.options.length) ? fld.options : dynamicOptions(fld.options_from);
+      for (const o of opts) {
+        const op = document.createElement('option');
+        op.value = String(o.value);
+        op.textContent = o.label;
+        ctl.appendChild(op);
+      }
+    } else if (fld.kind === 'textarea') {
+      ctl = document.createElement('textarea');
+      ctl.rows = 2;
+      ctl.spellcheck = false;
+    } else {
+      ctl = document.createElement('input');
+      ctl.type = fld.kind === 'number' ? 'number' : 'text';
+      if (fld.kind === 'number') {
+        if (fld.min) ctl.min = String(fld.min);
+        if (fld.step) ctl.step = String(fld.step);
+      }
+    }
+    ctl.id = controlId(fld.key);
+    ctl.title = fld.title || '';
+    if (fld.placeholder) ctl.placeholder = fld.placeholder;
+    // 默认值：字段给的 default（空则 select 取第一项；数字/文本留空交后端默认）
+    if (fld.default !== undefined && fld.default !== null && String(fld.default) !== '') {
+      ctl.value = String(fld.default);
+    } else if (ctl.tagName === 'SELECT' && ctl.options && ctl.options.length) {
+      ctl.value = ctl.options[0].value;
+    }
+    FORM_CTL.set(fld.key, ctl);
+    ctl.addEventListener(fld.kind === 'select' ? 'change' : 'input', schedulePreview);
+    host.appendChild(ctl);
+  }
+}
+function applyPanels() {
+  const p = panelOf(CARD);
+  el('splinePanel').style.display = p === 'spline' ? '' : 'none';
+  el('cardPanel').style.display = p === 'form' ? '' : 'none';
+  if (p === 'form') renderCardForm();
+  el('itemsLabel').textContent = p === 'spline' ? '结果预览（21 项）' : '结果预览';
+  const f = formOf(CARD) || {};
+  el('cardHint').title = f.missing_note || (CARD && CARD.summary) || '';
+  el('cardHint').textContent = f.note || '';
+}
+
+const fmt = (n) => {
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return "—";
+  return String(Number(Number(n).toFixed(4)));
+};
+
+function cardTypes() { return (OPT && OPT.card_types) || []; }
+function sideSpec(id) {
+  // 方向由卡类型固定；清单仍从后端 `systems[].sides` 表里取。
+  for (const s of ((OPT && OPT.systems) || [])) {
+    for (const sd of (s.sides || [])) if (sd.id === id) return sd;
+  }
+  return null;
+}
+function fitRow(code) {
+  return ((SIDE && SIDE.fits) || []).find((f) => f.code === code) || null;
+}
+
+// 取数/报错一律走共享助手 `/ocsm_gui_common.js`（readApi/fetchApi/ocsmStatus）：
+// 后端 {error} 原样透出，#status 用红框红字（不受本页 #status 的 color 影响），
+// 且旧的 preview 成功不会清掉新的出表报错（ocsmSeq/ocsmClearStatus 守卫）。
+
+function setOptions(id, list, preferred, decorate) {
+  const sel = el(id);
+  const before = sel.value;
+  sel.innerHTML = "";
+  // 分组（card_types[].group）：同一组收进 <optgroup>；无组名 = 平铺。
+  let host = sel;
+  let group = null;
+  for (const item of list) {
+    const g = item.group == null || item.group === '' ? null : String(item.group);
+    if (g !== group) {
+      group = g;
+      if (g) {
+        const og = document.createElement("optgroup");
+        og.label = g;
+        sel.appendChild(og);
+        host = og;
+      } else {
+        host = sel;
+      }
+    }
+    const o = document.createElement("option");
+    o.value = String(item.value);
+    o.textContent = decorate ? decorate(item) : item.label;
+    host.appendChild(o);
+  }
+  if (list.some((i) => String(i.value) === before)) {
+    sel.value = before;
+  } else if (preferred !== undefined && list.some((i) => String(i.value) === String(preferred))) {
+    sel.value = String(preferred);
+  } else if (list.length) {
+    sel.value = String(list[0].value);
+  }
+  return sel;
+}
+
+// ── 界面联动（清单/口径全部来自 OPT；页面不写死任何可选项）──────────────
+function updateRootTitle() {
+  const key = el("root").value;
+  if (key === "auto") {
+    const note = ((SIDE && SIDE.roots) || []).map((x) => x.note).join("；");
+    el("root").title = "自动：由表达式 DA/DF 反解（GB/T 3478.1 表 3 只有 30° 平/圆公式不同）；" + note;
+    return;
+  }
+  const r = ((SIDE && SIDE.roots) || []).find((x) => x.key === key);
+  el("root").title = r ? r.note : "";
+}
+
+function syncUi() {
+  if (!SIDE) return;
+  // 卡类型（表驱动；只有一个时置灰——不写额外文字）
+  el("cardType").disabled = cardTypes().length < 2;
+  // ⑤ title 兜底：极窄屏闭合态被截断时，悬停仍能看全卡名 + 口径
+  el("cardType").title = CARD ? (CARD.label + " — " + (CARD.summary || "")) : "";
+  // 公差等级（4/5/6/7）
+  setOptions("grade", SIDE.grades.map((g) => ({ value: g, label: g + " 级" })), el("grade").value || 6);
+  el("grade").title = SIDE.grade_note || "";
+  // 压力角 αD（30 / 37.5 / 45）
+  setOptions("alpha", SIDE.alphas.map((a) => ({ value: a, label: fmt(a) + "°" })), el("alpha").value || 30);
+  el("alpha").title = SIDE.alpha_note || "";
+  // 齿根形式：自动（反解） + 表里的平/圆
+  const roots = [{ value: "auto", label: "自动（按表达式反解）" }].concat(
+    SIDE.roots.map((r) => ({ value: r.key, label: r.label }))
+  );
+  setOptions("root", roots, el("root").value || "auto");
+  updateRootTitle();
+  // 配合类别：表里 preferred_45 的项在 45° 时排前并标注（不改清单，只改顺序/文案）
+  const a45 = Math.abs(Number(el("alpha").value) - 45) < 1e-9;
+  const fits = (SIDE.fits || []).slice().sort((x, y) => {
+    const kx = a45 && x.preferred_45 ? 0 : 1;
+    const ky = a45 && y.preferred_45 ? 0 : 1;
+    return kx - ky;
+  });
+  const prefFit = SIDE.id === "ext" ? (a45 ? "k" : "h") : "H";
+  // 传 prefFit（不是旧值）：旧值是别的方向/体系的 code 时，setOptions 里的 `before` 不命中，
+  // 再退回 prefFit；旧值命中时仍保留用户选择。
+  setOptions("fit", fits.map((f) => ({ value: f.code, label: f.fit + (a45 && f.preferred_45 ? "（45° 优先）" : "") })), prefFit);
+  el("fit").title = (fitRow(el("fit").value) || {}).memo || "";
+  // 量棒面板：applicable=false（无面板）→ 全部置灰；标签/读数文字照 pin spec（表驱动）。
+  const pin = SIDE.pin || { applicable: false };
+  const pinOk = !!pin.applicable;
+  if (!pinOk) dpSel = null;
+  el("pinLabel").textContent = pinOk ? (pin.label || "量棒直径 Dp") : "量棒直径 Dp";
+  el("dpLabel").textContent = pinOk ? (pin.dp_label || "量棒直径 Dp") : "量棒直径 Dp";
+  el("mdLabel").textContent = pinOk ? (pin.md_label || "测量跨棒距 Md") : "测量跨棒距 Md";
+  el("dpManualOn").disabled = !pinOk;
+  el("dpManual").disabled = !pinOk;
+  el("pinLabel").title = pinOk
+    ? [pin.label, pin.formula, pin.md_formula, pin.standard].filter(Boolean).join("｜")
+    : (pin.reason || SIDE.title || "");
+  el("dpManual").title = pinOk ? pin.standard : "";
+  el("dpChoices").title = pinOk ? [pin.formula, pin.md_formula].filter(Boolean).join("｜") : "";
+}
+
+// ── 模型 ──────────────────────────────────────────────────────────────
+function atValue() {
+  const x = el("atX").value.trim();
+  const y = el("atY").value.trim();
+  if (x === "" || y === "") return null; // 缺一个 = 走放置态（回图纸点基点）
+  const vx = Number(x);
+  const vy = Number(y);
+  if (Number.isNaN(vx) || Number.isNaN(vy)) return null;
+  return [vx, vy];
+}
+
+function currentModel() {
+  return {
+    card: CARD ? CARD.id : "花键参数表",
+    side: SIDE ? SIDE.id : "int",
+    grade: Number(el("grade").value),
+    fit: el("fit").value,
+    expr: el("expr").value.trim(),
+    root: el("root").value || "auto",
+    dp: (SIDE && SIDE.pin && SIDE.pin.applicable && dpSel !== null) ? dpSel : null,
+    at: atValue(),
+    rot: Number(el("rot").value || 0),
+  };
+}
+
+// ── 通用卡模型（表驱动：字段 key ↔ 后端模型字段一一对应）────────────────
+// 数字必填为空 → 送 0（后端给校验话术）；选填为空 → null；text/textarea → 字符串。
+function currentCardModel() {
+  const f = formOf(CARD);
+  const model = {
+    card: CARD ? CARD.id : '',
+    at: atValue(),
+    rot: Number(el('rot').value || 0),
+  };
+  for (const fld of ((f && f.fields) || [])) {
+    const c = FORM_CTL.get(fld.key);
+    if (!c) continue;
+    const raw = String(c.value == null ? '' : c.value).trim();
+    if (fld.kind === 'number') {
+      model[fld.key] = raw === '' ? (fld.required ? 0 : null) : Number(raw);
+    } else if (fld.kind === 'select') {
+      model[fld.key] = raw || null;
+    } else {
+      model[fld.key] = raw;
+    }
+  }
+  return model;
+}
+
+// ── 结果渲染 ──────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// 21 项：可见只有「名 + 值」，公式/口径/来源进每行原生 title=（信息分层）。
+function renderItems(items) {
+  const rows = (items || []).map((it) => {
+    const suffix = ocsmUnitSuffix(it.value, it.unit);
+    const unit = suffix ? " " + esc(suffix) : "";
+    const title = esc(it.formula) + "｜来源：" + esc(it.source);
+    return `<div class="row" title="${title}"><span class="k">${esc(it.label)}</span><span class="v">${esc(it.value)}${unit}</span></div>`;
+  });
+  el("items").innerHTML = rows.join("");
+}
+
+// 反解读数（m/z/αD/x/Da/Df + 齿根怎么来的）——只显示后端算出来的值。
+function renderResolved(j) {
+  el("mOut").textContent = fmt(j.m);
+  el("zOut").textContent = j.z === null || j.z === undefined ? "—" : String(j.z);
+  el("alphaOut").textContent = fmt(j.alpha);
+  el("xOut").textContent = fmt(j.x);
+  el("daOut").textContent = j.da === null || j.da === undefined ? "—" : fmt(j.da);
+  el("dfOut").textContent = j.df === null || j.df === undefined ? "—" : fmt(j.df);
+  const rootName = j.root === "flat" ? "平齿根" : j.root === "fillet" ? "圆齿根" : "—";
+  const src = j.root_source === "explicit" ? "（手选）"
+    : j.root_source === "expr" ? "（按表达式 DA/DF 反解）"
+    : "（按 αD 默认）";
+  el("rootOut").textContent = rootName + src;
+}
+
+// Dp 面板：标准解 + 3 个工程备选都显示、可点选；也允许手填（后端校验必须是系列值）。
+function renderDp(dp) {
+  const box = el("dpChoices");
+  box.innerHTML = "";
+  if (!dp || !dp.applicable) {
+    el("pinLabel").textContent = "量棒直径 Dp";
+    el("dpLabel").textContent = "量棒直径 Dp";
+    el("mdLabel").textContent = "测量跨棒距 Md";
+    el("dpOut").textContent = "—";
+    el("mdOut").textContent = "—";
+    el("mdRange").textContent = "";
+    return;
+  }
+  // 标签照后端 pin spec（内 = Dp/Md，外 = D_Re/M_Re 且带「公法线为主、跨棒距备用」）。
+  el("pinLabel").textContent = dp.label || "量棒直径 Dp";
+  el("dpLabel").textContent = dp.dp_label || "量棒直径 Dp";
+  el("mdLabel").textContent = dp.md_label || "测量跨棒距 Md";
+  const choices = (dp.choices || []).slice().sort((a, b) => {
+    const ka = a.standard ? 0 : 1;
+    const kb = b.standard ? 0 : 1;
+    return ka - kb || Number(a.value) - Number(b.value);
+  });
+  for (const c of choices) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = c.tag + " " + fmt(c.value);
+    if (Math.abs(Number(dp.current) - Number(c.value)) < 1e-9) b.classList.add("on");
+    b.title = c.standard ? (dp.standard || "标准解") : "与计算值最接近的系列值（工程备选）";
+    b.addEventListener("click", () => {
+      dpSel = Number(c.value);
+      el("dpManualOn").checked = false;
+      refresh();
+    });
+    box.appendChild(b);
+  }
+  el("dpOut").textContent = fmt(dp.current);
+  el("mdOut").textContent = fmt(dp.md && dp.md.value);
+  el("mdRange").textContent = dp.md
+    ? "（极限 " + fmt(dp.md.lower) + " … " + fmt(dp.md.upper) + "）"
+    : "";
+  el("dpManualOn").checked = !!dp.manual;
+  // 手填框正在输入时不要回写/重排格式（否则输入到一半会被截掉）
+  if (dp.manual) {
+    if (document.activeElement !== el("dpManual")) el("dpManual").value = fmt(dp.current);
+  } else {
+    el("dpManual").value = "";
+  }
+}
+
+async function refresh() {
+  if (panelOf(CARD) === 'spline') return refreshSpline();
+  return refreshCard();
+}
+
+async function refreshSpline() {
+  const model = currentModel();
+  if (!model.expr) {
+    ocsmStatus("请先粘九字段齿形表达式（可从轴/齿轮生成器 GUI 复制）", "bad");
+    return;
+  }
+  const seq = ocsmSeq(); // 只清“自己这一次”的状态：旧的成功不抹新错误
+  const r = await fetchApi("/api/spline_preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(model),
+  }, "/api/spline_preview");
+  if (!r.ok) {
+    el("dpOut").textContent = "—";
+    el("mdOut").textContent = "—";
+    el("mdRange").textContent = "";
+    return;
+  }
+  renderResolved(r.data);
+  renderItems(r.data.items);
+  renderDp(r.data.dp);
+  ocsmClearStatus(seq);
+}
+
+// 通用卡片预览（齿轮 / ANSI / NF / DIN）：与后端 /api/card_preview 同一条路径；
+// 必填校验按 form.required（表驱动），页面不写死任何卡的分支。
+async function refreshCard() {
+  const f = formOf(CARD);
+  if (!f) return;
+  const blank = [];
+  for (const fld of (f.fields || [])) {
+    if (!fld.required) continue;
+    const c = FORM_CTL.get(fld.key);
+    const raw = String(c && c.value != null ? c.value : '').trim();
+    const bad = fld.kind === 'number' ? !(Number(raw) > 0) : raw === '';
+    if (bad) blank.push(fld.label);
+  }
+  if (blank.length) {
+    ocsmStatus('请填 ' + blank.join('、'), 'bad');
+    return;
+  }
+  const seq = ocsmSeq();
+  const exprCtl = FORM_CTL.get('expr');
+  const exprSent = exprCtl ? String(exprCtl.value || '').trim() : '';
+  const r = await fetchApi('/api/card_preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(currentCardModel()),
+  }, '/api/card_preview');
+  if (!r.ok) return;
+  // 过期响应守卫：表达式在请求期间被改动 → 这次结果作废（不覆盖新输入）。
+  const exprNow = exprCtl ? String(exprCtl.value || '').trim() : '';
+  if (exprNow !== exprSent) return;
+  renderCardPreview(r.data, exprSent);
+  ocsmClearStatus(seq);
+}
+
+// 通用卡片读数（readout 行 + 项列表；公式/来源仍进 title=）。
+function renderCardPreview(d, exprSent) {
+  const rows = (d.readout || []).map((line) =>
+    `<div>${esc(line.k)}　<b>${esc(line.v)}</b></div>`);
+  el("cardReadout").innerHTML = rows.join("");
+  renderItems(d.items);
+  if (d.missing_note) el("items").title = d.missing_note;
+  // 表达式反解 → 回填本卡表单字段（后端只在本卡带 expr 时回 fields + 表达式回显）；
+  // 直接改控件值，不派发 input 事件 → 不会触发预览风暴；正在输入的控件不抢。
+  const echo = d.expr == null ? '' : String(d.expr).trim();
+  if (d.fields && echo && exprSent && exprSent === echo) {
+    for (const key of Object.keys(d.fields)) {
+      const c = FORM_CTL.get(key);
+      if (!c || document.activeElement === c) continue;
+      const v = d.fields[key];
+      const s = (v === null || v === undefined) ? '' : String(v);
+      if (String(c.value) !== s) c.value = s;
+    }
+  }
+}
+
+function schedulePreview() {
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(refresh, 160);
+}
+
+// ── 事件 ──────────────────────────────────────────────────────────────
+// 切换卡类型（一卡一方向）：方向从 card.direction 取，不再有面板内外按钮/体系下拉。
+function applyCardDirection() {
+  const dir = CARD && CARD.direction ? CARD.direction : null;
+  SIDE = dir ? (sideSpec(dir) || SIDE) : SIDE;
+  dpSel = null;
+}
+el("cardType").addEventListener("change", () => {
+  CARD = cardTypes().find((c) => c.id === el("cardType").value) || CARD;
+  applyCardDirection();
+  el("reportCard").style.display = "none"; // 换卡后旧报告不再对应当前卡
+  syncUi();
+  applyPanels();
+  schedulePreview();
+});
+el("grade").addEventListener("change", () => schedulePreview());
+el("fit").addEventListener("change", () => {
+  el("fit").title = (fitRow(el("fit").value) || {}).memo || "";
+  schedulePreview();
+});
+el("alpha").addEventListener("change", () => {
+  syncUi(); // 45° 时配合清单重排/标注
+  schedulePreview();
+});
+el("root").addEventListener("change", () => {
+  updateRootTitle();
+  schedulePreview();
+});
+el("expr").addEventListener("input", () => schedulePreview());
+// 通用卡字段的监听在 renderCardForm() 里随控件创建时挂上（input/change → 防抖预览）。
+el("dpManualOn").addEventListener("change", () => {
+  if (el("dpManualOn").checked) {
+    const v = Number(el("dpManual").value);
+    dpSel = v > 0 ? v : null;
+  } else {
+    dpSel = null;
+  }
+  schedulePreview();
+});
+el("dpManual").addEventListener("input", () => {
+  const v = Number(el("dpManual").value);
+  if (v > 0) {
+    dpSel = v;
+    el("dpManualOn").checked = true;
+  } else {
+    dpSel = null;
+    el("dpManualOn").checked = false;
+  }
+  schedulePreview();
+});
+
+el("ok").addEventListener("click", async () => {
+  el("ok").disabled = true;
+  try {
+    // 需手填的异常走动态：at 要么都填（直插），要么都不填（回图纸点击放置）
+    const ax = el("atX").value.trim();
+    const ay = el("atY").value.trim();
+    if ((ax === "") !== (ay === "")) {
+      ocsmStatus("插入点 at 需要 x 与 y 都填（都不填 = 回图纸点击放置）", "bad");
+      return;
+    }
+    const panel = panelOf(CARD);
+    const isSpline = panel === "spline";
+    const url = (isSpline ? "/api/spline_export" : "/api/card_export") + (TAB ? "?tab=" + encodeURIComponent(TAB) : "");
+    const model = isSpline ? currentModel() : currentCardModel();
+    const res = await fetchApi(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(model),
+    }, isSpline ? "/api/spline_export" : "/api/card_export");
+    if (!res.ok) return; // 后端 error 已由共享助手原样写进 #status（红框）
+    const j = res.data;
+    const msg = j.message || "已生成";
+    ocsmStatusOk(msg);
+    // 与孔/轴/零件库同款：成功后自动关窗，把焦点交回图纸（无 at 时插件已进 PartPlace）。
+    setTimeout(() => {
+      try { window.close(); } catch (e) { /* 被拒绝时忽略 */ }
+      ocsmStatusOk(msg + "（若本窗口未自动关闭，请 Alt+Tab 切回图纸继续）");
+    }, 300);
+  } finally {
+    el("ok").disabled = false;
+  }
+});
+
+// ── 计算书（①：与卡片同一份计算；错误走共享助手红框）──────────────────────
+// 生成的 Markdown 面板不自动关窗；「摘要表落图纸」= 把当前卡参数表走既有
+// `/api/spline_export|card_export` 插入图纸（摘要表 = 计算书关键项，同一份计算的 ATTRIB）。
+el("report").addEventListener("click", async () => {
+  el("report").disabled = true;
+  try {
+    const panel = panelOf(CARD);
+    const model = panel === 'spline' ? currentModel() : currentCardModel();
+    const r = await fetchApi('/api/card_report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(model),
+    }, '/api/card_report');
+    if (!r.ok) return;
+    el("reportTitle").textContent = r.data.title || "计算书";
+    el("reportMd").textContent = r.data.markdown || "";
+    el("reportCard").style.display = "";
+    ocsmStatusOk("计算书已生成（与卡片同一份计算；可复制或落摘要表）");
+  } finally {
+    el("report").disabled = false;
+  }
+});
+el("reportCopy").addEventListener("click", async () => {
+  const text = el("reportMd").textContent || "";
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    ocsmStatusOk("计算书已复制到剪贴板");
+  } catch (e) {
+    // 剪贴板被拒：选中让用户 Ctrl+C（不弹窗）
+    const range = document.createRange();
+    range.selectNodeContents(el("reportMd"));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    ocsmStatus("剪贴板不可用，已选中文本 —— 请按 Ctrl+C 复制", "warn");
+  }
+});
+el("reportSummary").addEventListener("click", async () => {
+  el("reportSummary").disabled = true;
+  try {
+    const panel = panelOf(CARD);
+    const isSpline = panel === "spline";
+    const url = (isSpline ? "/api/spline_export" : "/api/card_export")
+      + (TAB ? "?tab=" + encodeURIComponent(TAB) : "");
+    const model = isSpline ? currentModel() : currentCardModel();
+    const res = await fetchApi(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(model),
+    }, isSpline ? "/api/spline_export" : "/api/card_export");
+    if (!res.ok) return;
+    const j = res.data;
+    const msg = j.message || "摘要表已生成";
+    ocsmStatusOk(msg + "（摘要表 = 本卡参数表，与计算书同一份计算；请切回图纸放置）");
+  } finally {
+    el("reportSummary").disabled = false;
+  }
+});
+el("reportClose").addEventListener("click", () => {
+  el("reportCard").style.display = "none";
+});
+el("cancel").addEventListener("click", () => {
+  try { window.close(); } catch (e) {}
+});
+
+// 心跳：窗口开着时告诉插件（页面去重用）。
+function ping(bye) {
+  try {
+    fetch("/api/page_ping?p=spline" + (bye ? "&bye=1" : ""), { cache: "no-store" });
+  } catch (e) {}
+}
+
+// ── 启动 ──────────────────────────────────────────────────────────────
+(async () => {
+  el("atX").value = "";
+  el("atY").value = "";
+  el("rot").value = "0";
+  // 默认表达式（浏览器里只有 placeholder；这里给一份可跑的例子，防腐化/表单恢复）
+  el("expr").value = "SPLINE IN M3 Z20 ALPHA30 X0 DA65.4 DF57.3436 BETA0 H30";
+  const r = await fetchApi("/api/spline_options", { cache: "no-store" }, "/api/spline_options");
+  if (!r.ok) return; // 共享助手已把 error 红框显示在 #status
+  OPT = r.data;
+  setOptions("cardType", cardTypes().map((c) => ({ value: c.id, label: c.label, group: c.group })), (cardTypes()[0] || {}).id);
+  CARD = cardTypes()[0] || null;
+  if (CARD && CARD_PARAM) {
+    const want = cardTypes().find((c) => c.id === CARD_PARAM);
+    if (want) {
+      CARD = want;
+      el("cardType").value = want.id;
+    }
+  }
+  if (!CARD) {
+    el("status").className = "bad";
+    el("status").textContent = "选项表里没有卡片类型（插件版本不匹配？）";
+    return;
+  }
+  // 一卡一方向：方向由卡类型固定（GB 内/外、ANSI 四张、NF 内/外、DIN 内/外）。
+  applyCardDirection();
+  // 各卡字段/默认值/清单统一由 renderCardForm() 照 card_types[].form 渲染。
+  syncUi();
+  applyPanels();
+  await refresh();
+  ping(false);
+  setInterval(() => ping(false), 4000);
+  window.addEventListener("beforeunload", () => ping(true));
+})();
+})();
+</script>
+</body>
+</html>

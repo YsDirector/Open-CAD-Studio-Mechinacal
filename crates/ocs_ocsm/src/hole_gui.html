@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.hole.h1}}</title>
+<style>
+  /* 样式与 gear_gui.html / shaft_gui.html 同款：同一套配色、圆角与控件尺寸 */
+  :root { color-scheme: light; }
+  body { font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 14px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  h1 .sub { font-size: 12px; color: #888; font-weight: 400; margin-left: 8px; }
+  .wrap { display: flex; flex-direction: column; gap: 10px; }
+  .card { background: #fff; border: 1px solid #d9dee5; border-radius: 8px; padding: 10px 12px; }
+  label { display: block; font-size: 12px; color: #666; margin: 6px 0 2px; }
+  select, input[type=number], input[type=text] { padding: 4px 6px; border: 1px solid #c6ccd4;
+           border-radius: 4px; font-size: 13px; box-sizing: border-box; background: #fff; }
+  select { width: 100%; }
+  input[disabled], select[disabled], input[readonly] { background: #f1f3f5; color: #999; cursor: not-allowed; }
+  .top { display: grid; grid-template-columns: 168px 1fr 130px; gap: 12px; align-items: start; }
+  .kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .kind { border: 1px solid #c6ccd4; background: #f8fafc; border-radius: 4px; padding: 8px 4px;
+          font-size: 13px; cursor: pointer; }
+  .kind.on { background: #1e6fff; border-color: #1e6fff; color: #fff; }
+  .kind[disabled] { color: #aaa; cursor: not-allowed; }
+  .params { display: grid; grid-template-columns: 54px 1fr 54px 1fr; gap: 6px 8px; align-items: center; }
+  .params label { margin: 0; }
+  .views .chk, .chk { display: flex; align-items: center; gap: 4px; font-size: 13px;
+                      color: #444; margin: 4px 0; cursor: pointer; }
+  .chk input { margin: 0; }
+  .mid { display: grid; grid-template-columns: 250px 1fr; gap: 12px; align-items: start; }
+  .numrow { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .numrow input[type=number] { width: 96px; }
+  .unit { font-size: 12px; color: #888; }
+  .readout { margin-top: 8px; font-size: 12.5px; color: #444; line-height: 1.7; }
+  .readout b { color: #1a4fbf; font-weight: 600; }
+  #preview { width: 100%; min-height: 190px; border: 1px solid #e2e6ea; border-radius: 6px;
+             background: #fbfbf7; display: flex; align-items: center; justify-content: center; }
+  #preview svg { max-width: 100%; }
+  .bot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn { border: none; border-radius: 6px; padding: 8px 20px; font-size: 14px; cursor: pointer;
+         background: #1e6fff; color: #fff; }
+  .btn.ghost { background: #e4e7ec; color: #333; }
+  .btn[disabled] { background: #9db9e8; cursor: not-allowed; }
+  #status { font-size: 12.5px; margin-top: 6px; min-height: 16px; white-space: pre-wrap; color: #555; }
+  .ok { color: #1a7f37; } .bad { color: #d1242f; } .warn { color: #b26a00; }
+  .hint { font-size: 11.5px; color: #999; margin-top: 4px; line-height: 1.5; }
+  .hint.bad { color: #b3261e; background: #fdecea; border: 1px solid #f3b7b3; border-radius: 4px; padding: 4px 6px; }
+</style>
+</head>
+<body>
+<h1>{{i18n:gui.hole.h1}}<span class="sub">{{i18n:gui.hole.sub}}</span></h1>
+
+<div class="wrap">
+  <!-- ① 孔类型 + 参数 + 视图（照参考图布局） -->
+  <div class="card top">
+    <div class="kinds">
+      <button type="button" class="kind" id="kindSimple">{{i18n:gui.hole.kind.simple}}</button>
+      <button type="button" class="kind on" id="kindThreaded">{{i18n:gui.hole.kind.threaded}}</button>
+      <button type="button" class="kind" id="kindCounterbore">{{i18n:gui.hole.kind.counterbore}}</button>
+      <button type="button" class="kind" id="kindCountersink">{{i18n:gui.hole.kind.countersink}}</button>
+    </div>
+    <div class="params">
+      <label>标准</label><select id="std" title="标准 = 螺纹体系。管螺纹 G/R/NPT 的自动有效长度取表内标准啮合长度（R=ISO 7-1 表第16栏；NPT=基准距离+装配余量+偏差；G=同规格 R）"><option value="iso724">公制 M（ISO 724 / GB/T 196）</option></select>
+      <label>子类型</label><select id="subtype" title="子类型 = 螺纹牙型系列（如 UNC/UNF；ACME 的 general/矮牙）"></select>
+      <label id="sizeLabel">大小</label><select id="size" title="大小 = 规格；英制系列按 TPI 换算螺距 P = 25.4/TPI"></select>
+      <label id="nominalLabel">公称</label><select id="nominal" title="沉头/埋头 + 钻头/自定义时，用来按公称查沉孔推荐表"></select>
+      <label id="recoLabel">推荐值</label>
+      <select id="reco" title="沉头推荐值按螺钉类型查沉孔表；埋头孔按所选公称自动取 90° 推荐值">
+        <option value="gb70_1">GB/T 70.1 内六角圆柱头（GB/T 152.3 表1）</option>
+        <option value="gb70_2">GB/T 70.2 内六角平圆头（GB/T 152.3 无表·缺）</option>
+        <option value="gb6190">GB 6190/6191/65 低圆柱头（GB/T 152.3 表2）</option>
+      </select>
+      <label>配合</label><select id="fit" title="带螺纹：M=6H/6G、UN=2B/3B（只记录，不改变牙型）；螺栓间隙：精/中等/粗装配"></select>
+    </div>
+    <div class="hint" id="threadNote" style="display:none"></div>
+    <div class="views">
+      <label>视图</label>
+      <label class="chk"><input type="radio" name="view" id="viewSide" checked>侧视图</label>
+      <label class="chk"><input type="radio" name="view" id="viewTop">俯视图</label>
+    </div>
+  </div>
+
+  <!-- ② 孔参数 + 预览示意图 -->
+  <div class="card mid">
+    <div>
+      <label class="chk" id="threadRow"><input type="checkbox" id="threadToggle" title="沉头/埋头可选带螺纹或不带；简单孔恒不带">带螺纹</label>
+      <label>孔范围</label>
+      <select id="range" title="盲孔带 118° 底锥；贯通无底锥，孔深必须手填（板厚/通孔长度）">
+        <option value="blind">盲孔</option>
+        <option value="through">贯通</option>
+      </select>
+      <label>孔深</label>
+      <div class="numrow">
+        <label class="chk" style="margin:0"><input type="checkbox" id="hAuto" checked title="自动孔深 = 螺纹有效长度 + 2P（工艺余量；锥管按额外 1~2 牙上限）">自动</label>
+        <input type="number" id="hDepth" value="20" step="0.1" min="0.1">
+        <span class="unit">mm</span>
+      </div>
+      <div class="numrow" id="customRow">
+        <span class="unit">孔径</span>
+        <input type="number" id="customD" value="8.5" step="0.1" min="0.1">
+        <span class="unit">mm</span>
+      </div>
+      <div class="readout">
+        <div id="majorLine">螺纹大径D1：<b id="majorOut">10</b> mm</div>
+        <div id="minorLine">螺纹小径D：<b id="minorOut">8.376</b> mm</div>
+        <div id="extraOut"></div>
+      </div>
+    </div>
+    <div>
+      <div id="preview"></div>
+    </div>
+  </div>
+
+  <!-- ③ 螺纹有效长度 + 确定/取消 -->
+  <div class="card bot">
+    <label style="margin:0">螺纹有效长度</label>
+    <label class="chk" style="margin:0"><input type="checkbox" id="tAuto" checked title="自动有效长度：M/UN/ACME/Tr = 1.5×公称直径；管螺纹 = 表内标准啮合长度（G 暂取同规格 R）">自动</label>
+    <input type="number" id="tLen" value="15" step="0.1" min="0.1">
+    <span class="unit">mm</span>
+    <label class="chk" style="margin:0"><input type="checkbox" id="tFull">全长</label>
+    <span style="flex:1"></span>
+    <button type="button" class="btn" id="ok">{{i18n:gui.hole.ok}}</button>
+    <button type="button" class="btn ghost" id="cancel">{{i18n:gui.hole.cancel}}</button>
+  </div>
+  <div id="status"></div>
+  <div class="hint">{{i18n:gui.hole.hint}}</div>
+</div>
+
+<script src="/ocsm_gui_common.js"></script>
+<script>
+(() => {
+"use strict";
+// 窗口钉在哪张图纸（插件开窗时写的 tab=）：生成到图纸时带回给插件，多张图不串。
+const TAB = new URLSearchParams(location.search).get("tab");
+const el = (id) => document.getElementById(id);
+let sizes = null;          // /api/hole_sizes（四套数据表）
+let kind = "threaded";     // simple | threaded | counterbore | countersink
+let modeKey = null;        // 上一次渲染的子类型模式（thread / plain）
+let sizeKey = "10|1.5";    // 维持「大小」选择跨列表切换
+let sizeD = 10;            // 当前公称直径（跨列表按 d 保选择）
+let nominalD = 10;         // 沉头/埋头 + 钻头/自定义 时的公称
+let threadPref = true;     // 沉头/埋头「带螺纹」开关的用户偏好
+let timer = 0;
+let lastValues = null;
+
+const isCounter = () => kind === "counterbore" || kind === "countersink";
+const isThreaded = () =>
+  kind === "threaded" || (isCounter() && el("threadToggle").checked);
+
+// ── 螺纹体系（标准下拉）───────────────────────────────────────────────
+// sizes.systems = [/api/hole_sizes 返回的全部螺纹体系（M/UN/G/R/NPT/ACME/Tr）]，
+// 每个系统含 source/note/units + groups[{key,label,rows[{name,d,p,tpi,d2,d1,drill}]}]。
+function systemList() { return (sizes && sizes.systems) || []; }
+function systemOf(key) {
+  const list = systemList();
+  return list.find((s) => s.key === key) || list[0] || null;
+}
+function currentSystem() { return isThreaded() ? el("std").value || "iso724" : "iso724"; }
+function currentGroup() {
+  // 公制 M 的「子类型」= standard/fine（既有口径）；其余体系 = group.key。
+  const sys = currentSystem();
+  const sub = el("subtype").value;
+  if (sys === "iso724") return sub === "fine" ? "fine" : "coarse";
+  return sub;
+}
+function currentRows() {
+  const sys = systemOf(currentSystem());
+  if (!sys) return [];
+  const g = (sys.groups || []).find((x) => x.key === currentGroup());
+  return (g && g.rows) || [];
+}
+
+// ── 选择器填充 ────────────────────────────────────────────────────────
+function setOptions(id, pairs, preferred) {
+  const sel = el(id);
+  const before = sel.value;
+  sel.innerHTML = "";
+  for (const [value, text] of pairs) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  }
+  if (pairs.some((p) => p[0] === before)) {
+    sel.value = before;
+  } else if (preferred !== undefined && pairs.some((p) => p[0] === preferred)) {
+    sel.value = preferred;
+  } else if (pairs.length) {
+    sel.value = pairs[0][0];
+  }
+}
+
+function sizeTable() {
+  // 沉头/埋头表（沉头按推荐值选 GB/T 152.3 表1/表2）
+  if (kind === "counterbore") {
+    const key = el("reco").value === "gb6190" ? "gb6190" : "gb70";
+    return sizes.counterbore.rows.filter((r) => r.table === key);
+  }
+  if (kind === "countersink") return sizes.countersink.rows;
+  return null;
+}
+
+function sizeOptions() {
+  const th = isThreaded();
+  const sub = el("subtype").value;
+  if (th) {
+    // 螺纹：大小 = 当前体系/子类型组里的规格（key = `d|p`，内部单位 mm）；
+    // 旧插件没返回 systems 时回退到 legacy coarse/fine（兼容缓存戳不匹配的窗口）。
+    if (!systemList().length) {
+      const list = sub === "fine" ? sizes.fine || [] : sizes.coarse || [];
+      return list.map((r) => [`${r.d}|${r.p}`, r.name]);
+    }
+    return currentRows().map((r) => [`${r.d}|${r.p}`, r.name]);
+  }
+  if (sub === "drill") {
+    // 标准麻花钻直径系列（GB/T 6135.3-1996 直柄麻花钻）
+    return sizes.drill.diameters.map((d) => [String(d), `Ø${d}`]);
+  }
+  if (sub === "clearance") {
+    const table = sizeTable();
+    const allowed = table ? new Set(table.map((r) => Number(r.d))) : null;
+    const list = allowed
+      ? sizes.clearance.rows.filter((r) => allowed.has(Number(r.d)))
+      : sizes.clearance.rows;
+    return list.map((r) => [String(r.d), `M${r.d}`]);
+  }
+  return []; // 自定义：大小行隐藏
+}
+
+function nominalOptions() {
+  const table = sizeTable();
+  if (!table) return [];
+  return table.map((r) => [String(r.d), `M${r.d}`]);
+}
+
+function fitOptions() {
+  const th = isThreaded();
+  if (th) {
+    // 配合只记录（不改变基本牙型几何）：M=6H/6G；UN=2B/3B；管/梯形无等级 → 置灰。
+    if (currentSystem() === "un") return [["2B", "2B（内螺纹）"], ["3B", "3B（内螺纹）"]];
+    if (currentSystem() === "iso724") return [["6H", "6H（内螺纹）"], ["6G", "6G（内螺纹）"]];
+    return [["", "—"]];
+  }
+  if (el("subtype").value === "clearance") {
+    return [["close", "精装配"], ["normal", "中等装配"], ["loose", "粗装配"]];
+  }
+  return [["", "—"]];
+}
+
+// ── UI 联动 ───────────────────────────────────────────────────────────
+function syncUi() {
+  const th = isThreaded();
+  const counter = isCounter();
+  const sub = el("subtype").value;
+  // 孔类型高亮
+  for (const [id, key] of [
+    ["kindSimple", "simple"], ["kindThreaded", "threaded"],
+    ["kindCounterbore", "counterbore"], ["kindCountersink", "countersink"],
+  ]) {
+    el(id).classList.toggle("on", kind === key);
+  }
+  // 带螺纹开关：只有沉头/埋头能切
+  el("threadRow").style.display = counter ? "" : "none";
+  el("threadToggle").disabled = !counter;
+  if (kind === "threaded") el("threadToggle").checked = true;
+  if (kind === "simple") el("threadToggle").checked = false;
+
+  // 标准（螺纹体系）：不带螺纹时置灰；沉头/埋头 + 非公制会在 resolve 里明确报错
+  const sysSel = el("std");
+  sysSel.disabled = !th;
+  const sysObj = systemOf(currentSystem());
+
+  // 子类型（螺纹/无螺纹切换 + 螺纹体系切换时重建，避免把用户手选覆盖掉）
+  const mode = th ? `thread:${currentSystem()}` : "plain";
+  if (modeKey !== mode) {
+    modeKey = mode;
+    if (th) {
+      if (currentSystem() === "iso724") {
+        // 公制 M：沿用既有「标准螺纹（粗牙）/细牙螺纹」口径
+        setOptions("subtype", [["standard", "标准螺纹"], ["fine", "细牙螺纹"]], "standard");
+      } else {
+        const groups = (sysObj && sysObj.groups ? sysObj.groups : []).map((g) => [g.key, g.label]);
+        setOptions("subtype", groups, groups.length ? groups[0][0] : "");
+      }
+    } else {
+      setOptions("subtype", [["drill", "钻头大小"], ["custom", "自定义"], ["clearance", "螺栓间隙"]], "drill");
+    }
+  }
+  const sub2 = el("subtype").value;
+  // 大小（螺纹/间隙/钻头共用一行；钻头时列表 = 麻花钻系列）
+  const showSize = sub2 !== "custom";
+  el("sizeLabel").style.display = showSize ? "" : "none";
+  el("size").style.display = showSize ? "" : "none";
+  el("sizeLabel").textContent = sub2 === "drill" ? "钻头" : "大小";
+  const opts = sizeOptions();
+  let preferred = opts.some((p) => p[0] === sizeKey) ? sizeKey : undefined;
+  if (preferred === undefined) {
+    const hit =
+      opts.find((p) => Number(p[0].split("|")[0]) === sizeD) ||
+      opts.find((p) => Number(p[0].split("|")[0]) === nominalD);
+    if (hit) preferred = hit[0];
+  }
+  setOptions("size", opts, preferred);
+  sizeKey = el("size").value;
+  sizeD = Number(sizeKey.split("|")[0]);
+  // 公称（沉头/埋头 + 钻头/自定义 才要）
+  const needNominal = counter && (sub2 === "drill" || sub2 === "custom");
+  el("nominalLabel").style.display = needNominal ? "" : "none";
+  el("nominal").style.display = needNominal ? "" : "none";
+  if (needNominal) {
+    setOptions("nominal", nominalOptions(), String(nominalD));
+    nominalD = Number(el("nominal").value);
+  }
+  // 推荐值（沉头）；埋头说明已收进 reco 的 title 悬停
+  const isCb = kind === "counterbore";
+  el("recoLabel").style.display = isCb ? "" : "none";
+  el("reco").style.display = isCb ? "" : "none";
+  // 动态提示：只在真正选中“无标准有效长度”的管螺纹规格时弹出（正常规格不常驻；
+  // 公式/口径说明在控件 title 悬停里）。
+  const isPipe = th && sysObj && sysObj.is_pipe;
+  const selRow = isPipe
+    ? currentRows().find((r) => `${r.d}|${r.p}` === el("size").value)
+    : null;
+  const needManual = !!(isPipe && selRow && selRow.eff_len == null);
+  el("threadNote").style.display = needManual ? "" : "none";
+  el("threadNote").className = needManual ? "hint bad" : "hint";
+  if (needManual) {
+    el("threadNote").textContent =
+      "该规格没有标准有效长度：请手填「螺纹有效长度」（自动不可用）";
+  }
+  // 配合
+  const fits = fitOptions();
+  const fitPref = th
+    ? (currentSystem() === "un" ? "2B" : currentSystem() === "iso724" ? "6H" : "")
+    : "normal";
+  setOptions("fit", fits, fitPref);
+  el("fit").disabled = fits.length === 1;
+  // 自定义孔径行
+  const custom = !th && sub2 === "custom";
+  el("customRow").style.display = custom ? "" : "none";
+  el("customD").disabled = !custom;
+
+  // 自动开关的可用性
+  const full = th && el("tFull").checked;
+  const blind = el("range").value === "blind";
+  if (!th) {
+    el("hAuto").checked = false;
+    el("tAuto").checked = false;
+  }
+  el("hAuto").disabled = !th || !blind || full;
+  if (el("hAuto").disabled && !el("hAuto").checked) el("hDepth").readOnly = false;
+  else el("hDepth").readOnly = th && el("hAuto").checked;
+  el("tAuto").disabled = !th || full;
+  el("tFull").disabled = !th;
+  el("tLen").disabled = !th || full || el("tAuto").checked;
+  el("tLen").readOnly = th && el("tAuto").checked;
+  // 螺纹读数行：不带螺纹时改标题
+  el("majorLine").innerHTML = th
+    ? '螺纹大径D1：<b id="majorOut">—</b> mm'
+    : '孔 径：<b id="majorOut">—</b> mm';
+  el("minorLine").style.display = th ? "" : "none";
+}
+
+// ── 模型 ──────────────────────────────────────────────────────────────
+function currentSize() {
+  const v = (el("size").value || "").split("|");
+  return {
+    d: Number(v[0] || 10),
+    p: v.length > 1 && v[1] !== "" ? Number(v[1]) : null,
+  };
+}
+
+function currentModel() {
+  const th = isThreaded();
+  const sub = el("subtype").value;
+  const counter = isCounter();
+  const subDrill = !th && sub === "drill";
+  const subCustom = !th && sub === "custom";
+  const useNominal = counter && (subDrill || subCustom);
+  let d;
+  if (useNominal) {
+    d = Number(el("nominal").value || 10);
+  } else if (subCustom) {
+    d = Number(el("customD").value || 10);
+  } else {
+    const v = (el("size").value || "").split("|");
+    d = Number(v[0] || 10);
+  }
+  const sys = th ? currentSystem() : "iso724";
+  const group = th ? currentGroup() : null;
+  let pitch = null;
+  let drill_d = null;
+  if (th) {
+    // 公制 M：保持既有口径（只有细牙带 P）；其余体系始终带表内 P（mm）。
+    // 英制体系 P = 25.4/TPI（由 /api/hole_sizes 的 rows.p 预先换算好）。
+    if (sys !== "iso724" || sub === "fine") {
+      const v = (el("size").value || "").split("|");
+      pitch = v.length > 1 && v[1] !== "" ? Number(v[1]) : null;
+    }
+  } else if (subDrill) {
+    drill_d = Number((el("size").value || "").split("|")[0]) || null;
+  }
+  return {
+    kind,
+    // 非公制：模型子类型统一 standard（牙型系列在 thread_group 里）
+    subtype: th && sys !== "iso724" ? "standard" : sub,
+    thread_system: sys,
+    thread_group: group,
+    d,
+    pitch,
+    fit: el("fit").value,
+    custom_d: subCustom ? Number(el("customD").value) : null,
+    drill_d,
+    reco: el("reco").value,
+    range: el("range").value,
+    hole_depth: el("hAuto").checked ? null : Number(el("hDepth").value),
+    thread_len:
+      th && !el("tFull").checked
+        ? el("tAuto").checked
+          ? null
+          : Number(el("tLen").value)
+        : null,
+    full_thread: th ? el("tFull").checked : false,
+    views: { side: el("viewSide").checked, top: el("viewTop").checked },
+  };
+}
+
+// ── 预览 / 数值 ───────────────────────────────────────────────────────
+function renderValues(v) {
+  const th = isThreaded();
+  const majorOut = el("majorOut");
+  if (majorOut) majorOut.textContent = th ? v.major : v.base_d;
+  const minorOut = el("minorOut");
+  if (minorOut) minorOut.textContent = v.minor;
+  const extra = [];
+  if (v.bore_d) extra.push(`沉孔 Ø${v.bore_d} × ${v.bore_t}`);
+  if (v.sink_d) extra.push(`埋头 Ø${v.sink_d}（90°）`);
+  if (!th) {
+    extra.push(`底孔 Ø${v.base_d}`);
+  } else {
+    // 英制显示 TPI 并标注 P 换算；公制只显示 P。
+    extra.push(v.tpi ? `螺距 ${v.tpi} TPI（P ${v.pitch} mm）` : `螺距 P ${v.pitch} mm`);
+    extra.push(`有效螺纹 ${v.thread_len} / 底孔 Ø${v.base_d}`);
+    if (v.eff_len) extra.push(`螺纹有效长度 ${v.eff_len} mm`);
+    else if (v.gauge_len) extra.push(`基准距离 ${v.gauge_len} mm`);
+  }
+  el("extraOut").textContent = extra.join("；");
+}
+
+// 取数/报错一律走共享助手 `/ocsm_gui_common.js`（readApi/fetchApi/ocsmStatus）：
+// 非 2xx 先 text() 再 parse、后端 {error} 原样透出、#status 用红框红字（不再被 #status 的灰字盖住）。
+
+async function refresh() {
+  const model = currentModel();
+  const seq = ocsmSeq(); // 只清“自己这一次”的状态：旧的成功不抹新错误
+  const r = await fetchApi("/api/hole_preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(model),
+  }, "/api/hole_preview");
+  if (!r.ok) return; // 共享助手已把 error 红框显示在 #status
+  const j = r.data;
+  lastValues = j.values;
+  el("preview").innerHTML = j.svg;
+  renderValues(j.values);
+  if (el("hAuto").checked) el("hDepth").value = j.values.hole_depth;
+  if (el("tAuto").checked && isThreaded()) el("tLen").value = j.values.thread_len;
+  const warns = j.values.warnings || [];
+  if (warns.length) {
+    ocsmStatus("提示：" + warns.join("；"), "warn");
+  } else {
+    ocsmClearStatus(seq);
+  }
+}
+
+// 视图单选框（侧视/俯视二选一）：浏览器原生互斥，这里再钉一道（测试 DOM 垫片/程序化赋值都靠它），
+// 且不允许两个都不选（取消勾选就回侧视图）；请求里 views 恒只有一项为 true。
+function syncViewRadios(changed) {
+  if (changed === "side" && el("viewSide").checked) el("viewTop").checked = false;
+  if (changed === "top" && el("viewTop").checked) el("viewSide").checked = false;
+  if (!el("viewSide").checked && !el("viewTop").checked) el("viewSide").checked = true;
+}
+
+function schedulePreview() {
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(refresh, 160);
+}
+
+// ── 事件 ──────────────────────────────────────────────────────────────
+function pickKind(k) {
+  const wasCounter = isCounter();
+  kind = k;
+  // 首次进入沉头/埋头：按用户偏好恢复「带螺纹」开关
+  if (!wasCounter && isCounter()) el("threadToggle").checked = threadPref;
+  syncUi();
+  schedulePreview();
+}
+el("kindSimple").addEventListener("click", () => pickKind("simple"));
+el("kindThreaded").addEventListener("click", () => pickKind("threaded"));
+el("kindCounterbore").addEventListener("click", () => pickKind("counterbore"));
+el("kindCountersink").addEventListener("click", () => pickKind("countersink"));
+el("threadToggle").addEventListener("change", () => {
+  threadPref = el("threadToggle").checked;
+  syncUi();
+  schedulePreview();
+});
+el("subtype").addEventListener("change", () => {
+  syncUi();
+  schedulePreview();
+});
+el("std").addEventListener("change", () => {
+  // 切体系：子类型/大小/配合都跟着联动（syncUi 里按体系重建）
+  syncUi();
+  schedulePreview();
+});
+el("range").addEventListener("change", () => {
+  syncUi();
+  schedulePreview();
+});
+el("fit").addEventListener("change", () => schedulePreview());
+el("size").addEventListener("change", () => {
+  sizeKey = el("size").value;
+  sizeD = Number(sizeKey.split("|")[0]);
+  syncUi(); // 重新判定“该规格有无标准有效长度”的动态提示
+  schedulePreview();
+});
+el("nominal").addEventListener("change", () => {
+  nominalD = Number(el("nominal").value || 10);
+  schedulePreview();
+});
+el("reco").addEventListener("change", () => {
+  syncUi();
+  schedulePreview();
+});
+el("hAuto").addEventListener("change", () => {
+  syncUi();
+  schedulePreview();
+});
+el("tAuto").addEventListener("change", () => {
+  syncUi();
+  schedulePreview();
+});
+el("tFull").addEventListener("change", () => {
+  syncUi();
+  schedulePreview();
+});
+el("hDepth").addEventListener("input", () => schedulePreview());
+el("tLen").addEventListener("input", () => schedulePreview());
+el("customD").addEventListener("input", () => schedulePreview());
+el("viewSide").addEventListener("change", () => {
+  syncViewRadios("side");
+  schedulePreview();
+});
+el("viewTop").addEventListener("change", () => {
+  syncViewRadios("top");
+  schedulePreview();
+});
+
+el("ok").addEventListener("click", async () => {
+  el("ok").disabled = true;
+  try {
+    const url = "/api/hole_export" + (TAB ? "?tab=" + encodeURIComponent(TAB) : "");
+    const res = await fetchApi(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currentModel()),
+    }, "/api/hole_export");
+    if (!res.ok) return; // 后端 error 已由共享助手原样写进 #status（红框）
+    const j = res.data;
+    const w = (j.warnings || []).length ? "（提示：" + j.warnings.join("；") + "）" : "";
+    const msg = (j.message || "已生成") + w;
+    ocsmStatusOk(msg);
+    // 与轴/零件库同款：成功后自动关窗，把焦点交回图纸；
+    // 关窗前已由 /api/hole_export 建块 + 登记待放置件（插件侧已进 PartPlace），
+    // 鼠标跟随预览就能像轴/标准件那样接上。
+    setTimeout(() => {
+      try { window.close(); } catch (e) { /* 被拒绝时忽略 */ }
+      ocsmStatusOk(msg + "（若本窗口未自动关闭，请 Alt+Tab 切回图纸继续）");
+    }, 300);
+  } finally {
+    el("ok").disabled = false;
+  }
+});
+el("cancel").addEventListener("click", () => {
+  try { window.close(); } catch (e) {}
+});
+
+// 心跳：窗口开着时告诉插件（页面去重用）。
+function ping(bye) {
+  try {
+    fetch("/api/page_ping?p=hole" + (bye ? "&bye=1" : ""), { cache: "no-store" });
+  } catch (e) {}
+}
+
+// ── 启动 ──────────────────────────────────────────────────────────────
+(async () => {
+  // 初始化勾选态（浏览器里 HTML 自带 checked；这里再钉一道，防腐化/表单恢复）
+  el("viewSide").checked = true;
+  el("viewTop").checked = false;
+  el("hAuto").checked = true;
+  el("tAuto").checked = true;
+  el("tFull").checked = false;
+  el("threadToggle").checked = true;
+  el("range").value = "blind";
+  const r = await fetchApi("/api/hole_sizes", { cache: "no-store" }, "/api/hole_sizes");
+  if (!r.ok) return; // 共享助手已把 error 红框显示在 #status
+  sizes = r.data;
+  setOptions("reco", [
+    ["gb70_1", "GB/T 70.1 内六角圆柱头（GB/T 152.3 表1）"],
+    ["gb70_2", "GB/T 70.2 内六角平圆头（GB/T 152.3 无表·缺）"],
+    ["gb6190", "GB 6190/6191/65 低圆柱头（GB/T 152.3 表2）"],
+  ], "gb70_1");
+  // 标准 = 螺纹体系（M/UN/G/R/NPT/ACME/Tr）；兼容旧插件只返回 coarse/fine 的情况
+  const systems = systemList();
+  if (systems.length) {
+    setOptions("std", systems.map((s) => [s.key, s.label]), "iso724");
+  } else {
+    setOptions("std", [["iso724", "公制 M（ISO 724 / GB/T 196）"]], "iso724");
+  }
+  el("nominal").value = "10";
+  syncUi();
+  sizeKey = el("size").value;
+  sizeD = Number(sizeKey.split("|")[0]);
+  nominalD = Number(el("nominal").value || 10);
+  await refresh();
+  ping(false);
+  setInterval(() => ping(false), 4000);
+  window.addEventListener("beforeunload", () => ping(true));
+})();
+})();
+</script>
+</body>
+</html>

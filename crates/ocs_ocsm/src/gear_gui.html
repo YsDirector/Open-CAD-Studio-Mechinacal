@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.gear.title}}</title>
+<style>
+  /* 样式与 parts_gui.html / joint_gui.html 同款：同一套配色、圆角与控件尺寸 */
+  :root { color-scheme: light; }
+  body { font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 14px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  .sub { font-size: 12px; color: #888; font-weight: 400; margin-left: 8px; }
+  .wrap { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+  .card { background: #fff; border: 1px solid #d9dee5; border-radius: 8px; padding: 12px 14px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: #555; }
+  label { display: block; font-size: 12px; color: #666; margin: 8px 0 2px; }
+  select, input[type=number], input[type=text] { width: 100%; padding: 5px 6px; border: 1px solid #c6ccd4;
+           border-radius: 4px; font-size: 13px; box-sizing: border-box; background: #fff; }
+  input[disabled], input[readonly] { background: #f1f3f5; color: #777; cursor: not-allowed; }
+  input[readonly] { cursor: default; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .opt { padding: 5px 10px; border: 1px solid #c6ccd4; border-radius: 5px;
+         background: #fafbfc; cursor: pointer; font-size: 13px; user-select: none; }
+  .opt.on { background: #1e6fff; border-color: #1e6fff; color: #fff; }
+  .btn { border: none; border-radius: 6px; padding: 9px 18px; font-size: 14px; cursor: pointer;
+         background: #1e6fff; color: #fff; margin-top: 12px; }
+  .btn[disabled] { background: #9db9e8; cursor: not-allowed; }
+  .hint { font-size: 12px; color: #888; margin-top: 8px; line-height: 1.5; }
+  #status, #perr { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  /* ── 轴生成器表达式预览：只读框 + 复制按钮（与命令行提示共用同一份参数快照） ── */
+  .ctl.expr { flex-wrap: nowrap; margin-top: 4px; }
+  #exprPreview { flex: 1 1 auto; width: auto; font: 12.5px ui-monospace, "SF Mono", Consolas, "Courier New", monospace; }
+  .btn.mini { margin-top: 0; padding: 5px 12px; font-size: 13px; flex: none; }
+  .btn.mini[disabled] { background: #9db9e8; cursor: not-allowed; }
+  .ok { color: #1a7f37; } .bad { color: #d1242f; } .warn { color: #b26a00; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; }
+  /* ── 预览区：深色底、居中、宽度自适应（与后端 SVG 的 #111 底色一致） ── */
+  #preview { display: block; width: 100%; max-height: 56vh; object-fit: contain;
+             border: 1px solid #e2e6ea; border-radius: 6px; background: #111; margin-top: 10px; }
+  /* ── 参数表单：标签在左、控件在右（照用户草图） ── */
+  .form { display: grid; grid-template-columns: 170px 1fr; gap: 8px 10px; align-items: start; }
+  .form > label { margin: 0; padding-top: 6px; }
+  .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .ctl select, .ctl input { flex: none; }
+  .ctl input[type=number] { width: 120px; }
+  .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #333;
+         margin: 0; padding-top: 4px; cursor: pointer; }
+  .chk input[type=checkbox] { width: 15px; height: 15px; margin: 0; }
+  #mSel { width: 190px; }
+  #m { width: 110px; }
+  #alphaSel { width: 120px; }
+  #alpha { width: 90px; }
+  .ctl.beta input[type=number] { width: 64px; }
+  .unit { font-size: 12px; color: #888; }
+  /* ── 派生值信息行 ── */
+  .info { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; margin-top: 12px; }
+  .info .k { color: #777; }
+  .info b { font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>{{i18n:gui.gear.h1}}<span class="sub" id="pageSub">{{i18n:gui.gear.sub}}</span><span class="sub" id="modeSub"></span></h1>
+
+<div class="wrap">
+  <!-- ① 上部预览区：当前选中视图（大图位，深色底） -->
+  <div class="card">
+    <h2>预览（当前视图：<span id="viewName">剖视图</span>）</h2>
+    <div class="row" id="viewRow"></div>
+    <img id="preview" alt="齿轮预览">
+    <div id="perr"></div>
+  </div>
+
+  <!-- ② 参数表单：键名与 gear.rs 的 GearParams / parse_request 完全一致 -->
+  <div class="card">
+    <h2>几何参数</h2>
+    <div class="form">
+      <label>模式</label>
+      <div class="ctl">
+        <label class="chk"><input type="checkbox" id="splineMode" title="勾选 = 渐开线花键（GB/DIN/NF/ANSI）；不勾选 = 普通齿轮（体系 M/DP）。齿轮模式下给花键标准号或 d_B 会明确报错。NF 主参数 A；ANSI = 径节 P + Table 2 五列"> 花键模式（渐开线花键）</label>
+        <div class="hint" id="modeHint" style="flex-basis:100%; margin:0">
+          不勾选 = 普通齿轮；勾选 = 渐开线花键（内/外花键仍用下面的「齿轮种类」开关切换）。
+        </div>
+      </div>
+
+      <label>齿轮种类</label>
+      <div class="ctl" id="kindRow"></div>
+
+      <label id="stdLabel">花键标准号</label>
+      <div class="ctl" id="stdCtl">
+        <select id="stdSel">
+          <option value="GB">GB/T 3478.1-2008（无基准直径概念）</option>
+          <option value="DIN">DIN 5480-1:2015（d_B 主参数）</option>
+          <option value="NF">NF E22-141（A 主参数，已入库）</option>
+          <option value="ANSI">ANSI B92.1（径节 P，公式驱动）</option>
+        </select>
+      </div>
+
+      <label id="profileLabel">花键齿廓类型</label>
+      <div class="ctl" id="profileCtl"><select id="profileSel"></select></div>
+
+      <label id="dbLabel">基准直径 d_B</label>
+      <div class="ctl" id="dbCtl">
+        <input type="number" id="db" min="0" step="0.5" list="dinDbList" placeholder="DIN 5480-2 查表（必给；z 由 d_B 与 m 决定）">
+        <datalist id="dinDbList"></datalist>
+        <datalist id="nfAList"></datalist>
+        <div class="hint warn" id="dbListHint" style="flex-basis:100%; margin:0"></div>
+      </div>
+
+      <label id="sysLabel" for="sysSel">齿轮体系</label>
+      <div class="ctl" id="sysCtl">
+        <select id="sysSel" title="模数制用 m；径节制用 DP（块名/规格保留 DP 原值，避免与同模数件串块）。M 与 DP 只能选一个。">
+          <option value="M">M 模数制（输入模数 m）</option>
+          <option value="DP">DP 径节制（输入径节 DP，m = 25.4/DP）</option>
+        </select>
+      </div>
+
+      <label for="mSel" id="mLabel">模数[m/Mn]</label>
+      <div class="ctl" id="mCtl">
+        <select id="mSel" title="GB/T 1357 标准模数系列（第一/第二系列）"></select>
+        <input type="number" id="m" value="2" min="0.01" step="0.01" title="可直接手填非标准模数">
+        <div class="hint" id="ansiPitchHint" style="flex-basis:100%; margin:0; display:none"></div>
+      </div>
+
+      <label for="dp" id="dpLabel">径节[DP]</label>
+      <div class="ctl" id="dpCtl">
+        <input type="number" id="dp" value="8" min="0.01" step="0.25" placeholder="任意 DP（系列待定）" title="m = 25.4/DP（径节系列下拉暂不做，可输入任意 DP；块名/规格保留 DP 原值）">
+      </div>
+
+      <label for="z" id="zLabel">齿数[z]</label>
+      <div class="ctl"><input type="number" id="z" value="40" min="2" step="1"></div>
+
+      <label for="alpha">压力角[α]</label>
+      <div class="ctl">
+        <select id="alphaSel" title="常用压力角（GB/T 1356 默认 20°）；表外值直接改右边数字框"></select>
+        <input type="number" id="alpha" value="20" min="10.1" max="49.9" step="0.1"
+               title="度；默认 20°，常用 14.5/15/17.5/20/22.5/25/30/37.5/45（10°<α<50°）">
+        <span class="unit">°</span>
+      </div>
+
+      <label for="ha">齿顶高系数[ha*]</label>
+      <div class="ctl"><input type="number" id="ha" value="1" step="0.05"></div>
+
+      <label for="c" id="cLabel">顶隙系数[c*]</label>
+      <div class="ctl" id="cCtl"><input type="number" id="c" value="0.25" step="0.05"></div>
+
+      <label for="betaD" id="betaLabel">螺旋角[β]</label>
+      <div class="ctl beta" id="betaCtl">
+        <input type="number" id="betaD" value="0" step="1" title="度（左旋填负数）">
+        <span class="unit">°</span>
+        <input type="number" id="betaM" value="0" min="0" step="1" title="分">
+        <span class="unit">′</span>
+        <input type="number" id="betaS" value="0" min="0" step="1" title="秒">
+        <span class="unit">″</span>
+      </div>
+
+      <label for="h" id="hLabel">厚度[h]</label>
+      <div class="ctl">
+        <input type="number" id="h" value="20" min="0.01" step="1">
+        <span class="unit">mm</span>
+      </div>
+
+      <label for="chamfer" id="chamferLabel">轴向倒角距离[d]</label>
+      <div class="ctl" id="chamferCtl">
+        <input type="text" id="chamfer" value="1" disabled title="自动 = round(0.6m)，45° 落在齿顶圆柱两端（用户定案）">
+      </div>
+
+      <label id="hfLabel">花键齿根高系数[hf*]</label>
+      <div class="ctl" id="hfCtl"><input type="number" id="hf" value="0.9" step="0.01"></div>
+
+      <label id="rhoLabel">花键齿根圆角系数[ρf*]</label>
+      <div class="ctl" id="rhoCtl"><input type="number" id="rho" value="0.4" step="0.01"></div>
+
+      <label id="cfLabel">花键齿形裕度系数[cF*]</label>
+      <div class="ctl" id="cfCtl"><input type="number" id="cf" value="0.1" step="0.01"></div>
+
+      <label for="x">变位系数[Xn]</label>
+      <div class="ctl"><input type="number" id="x" value="0" step="0.05"></div>
+    </div>
+
+    <!-- ②.5 种类说明 + 命令行等价用法：切种类/改参数/切视图时同步刷新 -->
+    <div class="hint" id="kindHint"></div>
+
+    <!-- ②.6 轴生成器表达式：与上面的命令行提示同源；复制后到轴生成器粘贴即成段 -->
+    <label for="exprPreview">轴生成器表达式（一行轴段语法，复制后到轴生成器粘贴）</label>
+    <div class="ctl expr">
+      <input type="text" id="exprPreview" readonly spellcheck="false">
+      <button type="button" class="btn mini" id="exprCopy">{{i18n:gui.gear.copy_expr}}</button>
+    </div>
+    <div class="hint" id="exprHint"></div>
+
+    <!-- ③ 信息行：后端算出的派生值 + 提示（notes） -->
+    <div class="info" id="info"></div>
+    <div class="hint" id="notes"></div>
+
+    <!-- ④ 校验红字 + 主按钮（流程与零件库「零件出库」一致） -->
+    <div class="hint bad" id="warn"></div>
+    <button class="btn" id="out" title="生成物：轮廓 → 1轮廓实线层、齿根/细线 → 2细线层、分度圆/中心线 → 3中心线层、剖面线 → 5剖面线层；颜色/线型/线宽一律 ByLayer；不含尺寸标注">{{i18n:gui.gear.export}}</button>
+    <div id="status"></div>
+    <div class="hint">调参数 → 看预览 → 点「生成到图纸」回图纸放置。</div>
+  </div>
+</div>
+
+<script src="/ocsm_gui_common.js"></script>
+<script>
+/* ─────────────────────────── 常量与状态 ─────────────────────────── */
+
+// GB/T 1357 标准模数系列（普通齿轮用；花键模式按体系换成各自标准表）
+const MODULES = [0.5, 0.6, 0.7, 0.8, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 32, 40, 50];
+// 花键各体系模数候选兜底（与 invol_spline.rs 的 GB_MODULES / CSV 实际 m 列同值；
+// 正经路径从 /api/parts 的 gb_modules/din_modules/nf_modules 取，避免两处漂移）：
+//  * GB  = GB/T 3478.1-2008 表 2（15 种：第 1 系列优先 + 第 2 系列）；
+//  * DIN = DIN 5480-2 名义表实际 m 列；
+//  * NF  = NF E22-141 尺寸表实际 m 列（含 1.667/3.75/7.5，且不含 GB/DIN 特有档）；
+//  * ANSI = 17 项径节 A/B（见 ANSI_PITCH_FALLBACK）。
+const GB_MODULE_FALLBACK = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 10];
+const DIN_MODULE_FALLBACK = [0.5, 0.6, 0.75, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 10];
+const NF_MODULE_FALLBACK = [0.5, 0.75, 1, 1.25, 1.667, 2.5, 3.75, 5, 7.5, 10];
+// 常用压力角（GB/T 1356 默认 20°；30/37.5/45 也列入快捷档，45° 花键要配小 ha*）。
+// 下拉只是快捷方式，右侧数字框可输任意 10°<α<50° 的值。
+const ALPHAS = [14.5, 15, 17.5, 20, 22.5, 25, 30, 37.5, 45];
+const ALPHA_DEFAULT = 20;
+// 两种齿轮：key 与 gear.rs 里 GearKind::key() 一致（external|internal）
+// hFactor = 齿宽默认系数：外 10m（模板 20 @ m=2）、内 15m（模板 30 @ m=2）
+const KINDS = [
+  { key: "external", name: "外齿轮", hFactor: 10,
+    sub: "四个视图：剖视图 / 侧视图 / 简化正视图 / 常规正视图" },
+  { key: "internal", name: "内齿轮（齿圈）", hFactor: 15,
+    sub: "两个视图：剖视图（齿圈内齿不剖）/ 端视图 —— 齿顶圆在内、齿根圆在外（da < d < df）" },
+];
+// 视图表：键与 gear.rs 里 GearView::key() 一致（section|side|simplified|front）
+// kinds = 该视图在哪些种类下可生成；internalName = 内齿轮下的叫法（与 gear.rs label_for 同口径）
+const VIEWS = [
+  { key: "section", name: "剖视图", internalName: "剖视图（齿圈内齿不剖）", kinds: ["external", "internal"] },
+  { key: "side", name: "侧视图", kinds: ["external"] },
+  { key: "simplified", name: "简化正视图", kinds: ["external"] },
+  { key: "front", name: "常规正视图", internalName: "端视图", kinds: ["external", "internal"] },
+];
+// 花键齿廓预设：正常从 `/api/parts`（spline_engine.invol_presets，引擎数据）取；拿不到时用这份兜底
+// （系数与 invol_spline.rs 的 `GB_PRESETS`/`DIN_PRESETS` 同一套）。
+const INVOL_FALLBACK = [
+  { code: "GB30P", std: "GB", profile: "30平齿根", alpha: 30, ha: 0.5, hf: 0.75, rho: 0.2, cf: 0.1 },
+  { code: "GB30R", std: "GB", profile: "30圆齿根", alpha: 30, ha: 0.5, hf: 0.9, rho: 0.4, cf: 0.1 },
+  { code: "GB375R", std: "GB", profile: "37.5圆齿根", alpha: 37.5, ha: 0.45, hf: 0.7, rho: 0.3, cf: 0.1 },
+  { code: "GB45R", std: "GB", profile: "45圆齿根", alpha: 45, ha: 0.4, hf: 0.6, rho: 0.25, cf: 0.1 },
+  { code: "DIN30", std: "DIN", profile: "DIN30", alpha: 30, ha: 0.45, hf: 0.55, rho: 0.16, cf: 0.1 },
+  // NF 已入库（A 主参数）；ANSI 已接入（径节 P + Table 2 五列；α/齿根型式/配合方式由 profile 决定）。
+  { code: "NFP", std: "NF", profile: "NF平齿根", alpha: 20, ha: 0.2, hf: 1.0, rho: 0.3, cf: 0.1 },
+  { code: "NFR", std: "NF", profile: "NF圆齿根", alpha: 20, ha: 0.2, hf: 1.147, rho: 0.528, cf: 0.1 },
+  { code: "ANSI30P", std: "ANSI", profile: "ANSI30平齿根齿侧", alpha: 30, ha: 0.5, hf: 0.675, rho: 0, cf: 0 },
+  { code: "ANSI30PM", std: "ANSI", profile: "ANSI30平齿根外径", alpha: 30, ha: 0.5, hf: 0.5, rho: 0, cf: 0 },
+  { code: "ANSI30R", std: "ANSI", profile: "ANSI30圆齿根齿侧", alpha: 30, ha: 0.5, hf: 0.9, rho: 0, cf: 0 },
+  { code: "ANSI375R", std: "ANSI", profile: "ANSI37.5圆齿根齿侧", alpha: 37.5, ha: 0.5, hf: 0.65, rho: 0, cf: 0 },
+  { code: "ANSI45R", std: "ANSI", profile: "ANSI45圆齿根齿侧", alpha: 45, ha: 0.5, hf: 0.5, rho: 0, cf: 0 },
+];
+let involPresets = [];            // 目录表预设（拿不到就空，用 INVOL_FALLBACK）
+let involLastInfo = null;         // 最近一次 /api/gear_info 结果（花键统一表达式的 DA/DF 来源）
+let involDinNominal = [];         // DIN 5480-2 名义表候选（d_B datalist）
+let involNfNominal = [];          // NF E22-141 尺寸表候选（A datalist）
+let involGbModules = [];          // GB/T 3478.1 表 2 模数候选（catalog gb_modules）
+let involDinModules = [];         // DIN 5480-2 名义表实际 m 列（catalog din_modules）
+let involNfModules = [];          // NF E22-141 尺寸表实际 m 列（catalog nf_modules）
+// ANSI B92.1 径节 17 项（A/B = P/Ps，Ps=2P）；正常从 `/api/parts` 取，拿不到用这份兜底
+// （与 invol_spline.rs 的 ansi_pitches() / assets/ansi_b921_formulas.csv 同源）。
+const ANSI_PITCH_FALLBACK = [
+  "2.5/5", "3/6", "4/8", "5/10", "6/12", "8/16", "10/20", "12/24",
+  "16/32", "20/40", "24/48", "32/64", "40/80", "48/96", "64/128", "80/160", "128/256",
+];
+let involAnsiPitches = [];        // ANSI 径节 A/B 候选（拿不到就空，用 ANSI_PITCH_FALLBACK）
+const ansiPitchList = () => (involAnsiPitches.length ? involAnsiPitches : ANSI_PITCH_FALLBACK);
+const ansiPitchP = (label) => parseFloat(String(label).split("/")[0]);
+// 当前体系（GB/DIN/NF）的模数候选：优先 catalog 实际值；DIN/NF 缺目录时退各自 CSV 同值兜底。
+function splineModuleList(std) {
+  if (std === "GB") return involGbModules.length ? involGbModules : GB_MODULE_FALLBACK;
+  if (std === "DIN") return involDinModules.length ? involDinModules : DIN_MODULE_FALLBACK;
+  if (std === "NF") return involNfModules.length ? involNfModules : NF_MODULE_FALLBACK;
+  return [];
+}
+// 体系候选来源（报错/标题要说清“来自哪张表”）。
+function moduleSourceOf(std) {
+  return ({
+    GB: "GB/T 3478.1-2008 表 2（15 种）",
+    DIN: "DIN 5480-2 名义表实际 m 列",
+    NF: "NF E22-141 尺寸表实际 m 列",
+    ANSI: "ANSI B92.1 径节 17 项（P/Ps=A/B）",
+  })[std] || "";
+}
+const ansiPairLabel = (p) => fmt(p) + "/" + fmt(2 * p);
+const isAnsiMode = () => isSpline() && el("stdSel").value === "ANSI";
+// ANSI B92.1 Table 2 五列各自的适用径节范围（P 含端点；Ps=2P）——与 invol_spline.rs 的
+// AnsiColumn::pitch_range 同源（用户定案 A：按列强制）。注意 Table 3 的 Sv min 公式适用面
+// 比每列更宽（17 项全印），不要拿本表去卡 Sv。
+const ANSI_TABLE2_RANGES = {
+  ANSI30P:  { desc: "30° 平齿根 / 齿侧配合",   lo: 2.5, hi: 32,  label: "2.5/5 — 32/64" },
+  ANSI30PM: { desc: "30° 平齿根 / 外径配合",   lo: 3,   hi: 16,  label: "3/6 — 16/32" },
+  ANSI30R:  { desc: "30° 圆齿根 / 齿侧配合",   lo: 2.5, hi: 48,  label: "2.5/5 — 48/96" },
+  ANSI375R: { desc: "37.5° 圆齿根 / 齿侧配合", lo: 2.5, hi: 48,  label: "2.5/5 — 48/96" },
+  ANSI45R:  { desc: "45° 圆齿根 / 齿侧配合",   lo: 10,  hi: 128, label: "10/20 — 128/256" },
+};
+// 当前 ANSI 列的范围（未知代号返回 null）。
+const ansiColumnRange = (code) => ANSI_TABLE2_RANGES[code] || null;
+// 当前列适用径节的 17 项子集（不选列/未知代号 = 全 17 项），供下拉过滤。
+function ansiPitchLabelsForColumn(code) {
+  const r = ansiColumnRange(code);
+  const all = ansiPitchList();
+  if (!r) return all;
+  return all.filter((l) => { const p = ansiPitchP(l); return p >= r.lo - 1e-9 && p <= r.hi + 1e-9; });
+}
+// 列范围校验：越界返回与后端同一个文案（collect 红字用）；合法返回 ""。
+function ansiPitchRangeErr(code, p) {
+  const r = ansiColumnRange(code);
+  if (!r || !(p > 0)) return "";
+  const pair = ansiPairLabel(p);
+  if (p < r.lo - 1e-9) return "ANSI B92.1 Table 2「" + r.desc + "」列的适用径节为 " + r.label + "，收到 " + pair + "（低于下限）。";
+  if (p > r.hi + 1e-9) return "ANSI B92.1 Table 2「" + r.desc + "」列的适用径节为 " + r.label + "，收到 " + pair + "（超出上限）。";
+  return "";
+}
+const involList = () => (involPresets.length ? involPresets : INVOL_FALLBACK);
+// 花键模式开关（复选框）
+const isSpline = () => el("splineMode").checked;
+let curKind = "external";         // 当前种类（默认外齿轮）
+let curView = "section";          // 当前选中视图（默认剖视图）
+let hTouched = false;             // 用户是否手动改过厚度 h（改过则切种类/改 m 不再自动回默认）
+let alphaTouched = false;         // 用户是否手动改过压力角 α（改过之后任何自动同步都不再重置，照 hTouched 口径）
+let seqPreview = 0, seqInfo = 0;  // 过期响应丢弃序号（快速连点时只认最后一次）
+let tPreview = 0, tInfo = 0;      // 防抖计时器（预览 250ms / 派生值 300ms）
+const el = (id) => document.getElementById(id);
+
+// 种类/视图查询 + h 默认值（切种类、改 m、渲染提示时共用）
+const kindOf = () => KINDS.find((k) => k.key === curKind) || KINDS[0];
+const viewOf = (key) => VIEWS.find((v) => v.key === key);
+// 花键模式下种类改名/改说明（同一套 toggle：外花键 / 内花键）
+function kindName(k) {
+  if (!isSpline()) return k.name;
+  return k.key === "internal" ? "内花键" : "外花键";
+}
+function kindSub(k) {
+  if (!isSpline()) return k.sub;
+  return k.key === "internal"
+    ? "内花键：材料在外、齿朝内；同内齿轮只有 剖视图 + 端视图，无侧视图"
+    : "外花键：齿朝外（大径/小径按 GB 表 3 或 DIN 名义表公式）";
+}
+// 该视图在给定模式/种类下可生成吗：花键外花键 = 端视图/侧视图/剖视图；
+// 内花键与内齿轮同口径 = 剖视图 + 端视图（无侧视图/简化正视图）；
+// 齿轮仍按原口径（内齿轮只有剖视 + 端视）。
+function viewAvailable(key, kind) {
+  const v = viewOf(key);
+  if (!v) return false;
+  if (isSpline()) {
+    if (kind === "internal") return ["section", "front"].indexOf(key) >= 0;
+    return ["section", "side", "front"].indexOf(key) >= 0;
+  }
+  return v.kinds.indexOf(kind) >= 0;
+}
+// 视图显示名：齿轮内齿圈下 section/front 用 internalName；花键统一用花键叫法
+// （内花键 section 与内齿轮同名「剖视图（齿圈内齿不剖）」）
+function viewLabel(key, kind) {
+  const v = viewOf(key);
+  if (!v) return "";
+  if (isSpline()) {
+    if (kind === "internal") return ({ section: "剖视图（齿圈内齿不剖）", front: "端视图" })[key] || v.name;
+    return ({ section: "剖视图", side: "侧视图", front: "端视图" })[key] || v.name;
+  }
+  return kind === "internal" && v.internalName ? v.internalName : v.name;
+}
+
+// 齿宽默认值：外齿轮 10m、内齿轮 15m（m 非法时返回 NaN）；ANSI 径节制按 10·m = 10·25.4/P（mm）。
+function defaultH() {
+  if (isSpline() && el("stdSel").value === "ANSI") {
+    const pv = num("m");
+    return Number.isFinite(pv) && pv > 0 ? 10.0 * 25.4 / pv : NaN;
+  }
+  const m = effM();
+  if (!Number.isFinite(m) || m <= 0) return NaN;
+  return kindOf().hFactor * m;
+}
+// 有效模数：M 模式 = m 输入框；DP 模式 = 25.4/DP（径节输入框）。
+function effM() {
+  if (!isSpline() && el("sysSel").value === "DP") {
+    const dp = num("dp");
+    return Number.isFinite(dp) && dp > 0 ? 25.4 / dp : NaN;
+  }
+  return num("m");
+}
+// 用户没手动改过 h 时写回默认值；force=true 则无条件写（初始化用）
+function syncDefaultH(force) {
+  if (hTouched && !force) return;
+  const v = defaultH();
+  if (Number.isFinite(v)) el("h").value = fmt(v);
+}
+// 厚度/有效长度口径（花键模式：外花键 = 侧视/剖视、内花键 = 剖视的有效长度 L）→ h 的 title。
+function syncHRule() {
+  if (isSpline()) {
+    el("h").title = "花键有效长度 L（" + (curKind === "internal" ? "剖视" : "侧视/剖视") + "用；端视图不需要）" + (hTouched ? " · 已手动修改" : "");
+    return;
+  }
+  el("h").title = (curKind === "internal" ? "默认 15m（模板 30 @ m=2）" : "默认 10m（模板 20 @ m=2）")
+    + (hTouched ? " · 已手动修改" : "");
+}
+// 螺旋角口径随种类变（内齿轮没有侧视图，斜齿按轴向剖面画、不画三条螺旋线）→ β 三框 title。
+function syncBetaHint() {
+  const tip = curKind === "internal"
+    ? "右旋为正、左旋在度数里填负数；内齿轮斜齿按轴向剖面画，不画三条螺旋线细实线"
+    : "右旋为正、左旋在度数里填负数；β≠0 = 斜齿轮：侧视图会加三条细实线";
+  for (const id of ["betaD", "betaM", "betaS"]) el(id).title = tip;
+}
+
+// 压力角默认值（不随 m/种类变；花键模式由齿廓预设控制，不走这里）
+function defaultAlpha() { return ALPHA_DEFAULT; }
+// 用户没手动改过 α 时写回默认 20°；force=true 则无条件写（初始化用）；花键模式不改。
+function syncDefaultAlpha(force) {
+  if (isSpline()) return;
+  if (alphaTouched && !force) return;
+  el("alpha").value = fmt(defaultAlpha());
+}
+// 压力角下拉 ↔ 数字框联动：命中常用档就选它，否则选「自定义」
+function syncAlphaSelect() {
+  const a = num("alpha");
+  const hit = Number.isFinite(a) ? ALPHAS.find((v) => Math.abs(v - a) < 1e-9) : undefined;
+  el("alphaSel").value = hit ? String(hit) : "custom";
+}
+// 压力角口径：齿轮默认 20° + 系数不随 α 自动变的提醒；花键模式由齿廓预设控制 → alpha 的 title。
+function syncAlphaHint() {
+  if (isSpline()) {
+    el("alpha").title = "花键基本齿廓压力角由齿廓预设决定（GB：30/37.5/45°；DIN：30°；NF：20°；ANSI 由 Table 2 齿廓列决定）；切齿廓自动带出，不可覆盖（显式给不一致的 α 会被后端拒绝）。"
+      + (alphaTouched ? " · 已手动修改" : "");
+    return;
+  }
+  el("alpha").title = "默认 20°（GB/T 1356）；ha*/c*/齿根圆角 ρ=0.38m 不随 α 自动变，"
+    + "14.5°/30°/45° 等系统请按所用标准手动改 ha*/c*（45° 花键常用 ha*≈0.5，本工具下限 0.5）"
+    + (alphaTouched ? " · 已手动修改" : "");
+}
+
+/* ─────────────────────────── 参数读取与校验 ─────────────────────────── */
+
+// 读一个数字框（空/非数字 → NaN）
+function num(id) { return parseFloat(el(id).value); }
+
+// 螺旋角换算：sign(度)*(|度| + 分/60 + 秒/3600)（右旋为正，左旋在度数里填负数）
+function betaDeg() {
+  const d = num("betaD"), mm = num("betaM"), s = num("betaS");
+  if (![d, mm, s].every(Number.isFinite)) return NaN;
+  const sign = d < 0 ? -1 : 1;
+  return sign * (Math.abs(d) + mm / 60 + s / 3600);
+}
+
+// 收集当前参数：err 非空 = 非法（禁用主按钮、红字提示）；p 供 URL / POST JSON 用。
+// 花键模式：m/z 可空（DIN 给 d_B 时可省一个），但至少要能定出 m/z；标准/d_B 只在花键模式出现。
+function collect() {
+  const m = num("m"), z = num("z"), alpha = num("alpha"), ha = num("ha"), c = num("c"), h = num("h"), x = num("x");
+  const beta = betaDeg();
+  let err = "";
+  if (isSpline()) {
+    const std = el("stdSel").value;
+    const isNf = std === "NF";
+    // ANSI：输入切到径节 P（沿用 m 数字框），α/齿根型式/配合方式由 profile 下拉决定；
+    // 不传 alpha/ha/hf/rho/cf（后端会拒绝覆盖），不传 x（ANSI 无变位）。
+    if (std === "ANSI") {
+      const pv = num("m");
+      let aerr = "";
+      if (!Number.isFinite(pv) || pv <= 0) aerr = "径节 P 必须是正数。";
+      else if (ansiPitchList().every((l) => Math.abs(ansiPitchP(l) - pv) > 1e-9)) {
+        aerr = "径节 P=" + fmt(pv) + " 不在标准系列（17 项 A/B：" + ansiPitchList().join("、") + "）；Ps 恒为 2P。";
+      }
+      else if (!Number.isFinite(z) || z < 3) aerr = "ANSI 齿数 N 不能小于 3。";
+      else if (!Number.isFinite(h) || h <= 0) aerr = "有效长度 L 必须是正数。";
+      else if (!el("profileSel").value) aerr = "ANSI 请选择 Table 2 齿廓（压力角/齿根型式/配合方式）。";
+      else aerr = ansiPitchRangeErr(el("profileSel").value, pv);   // Table 2 每列适用径节范围
+      // 径节统一走 `pitch`（A/B 原值，如 `5/10`）：预览/信息查询串与导出 JSON 共用同一把钥匙，
+      // 后端 `/api/gear_svg`、`/api/gear_info`、`/api/gear_export` 都按 `pitch` 解析（不再各写一套）。
+      const p = { mode: "spline", kind: curKind, std, profile: el("profileSel").value, pitch: ansiPairLabel(pv), h };
+      if (Number.isFinite(z) && z >= 2) p.z = Math.round(z);
+      return { ok: !aerr, err: aerr, p };
+    }
+    const benchName = isNf ? "公称直径 A" : "基准直径 d_B";
+    const db = String(el("db").value).trim();
+    const dbv = db === "" ? NaN : Number(db);
+    const xLocked = std === "DIN" || isNf;   // x 是因变量（由 d_B/A、m、z 解出）
+    const gbLocked = std === "GB";           // GB 不变位：x 恒为 0（后端也拒绝非零）
+    const hfv = num("hf"), rhov = num("rho"), cfv = num("cf");
+    if (db !== "" && (!Number.isFinite(dbv) || dbv <= 0)) err = benchName + " 必须是正数（或留空）。";
+    else if (!Number.isFinite(alpha) || alpha <= 10 || alpha >= 50) err = "压力角 α 超出范围（10°<α<50°）。";
+    else if (!Number.isFinite(ha)) err = "齿顶高系数 ha* 必须是数字。";
+    else if (!Number.isFinite(hfv) || hfv <= 0) err = "齿根高系数 hf* 必须是正数。";
+    else if (!Number.isFinite(rhov) || rhov < 0) err = "齿根圆角系数 ρf* 不能为负。";
+    else if (!Number.isFinite(cfv) || cfv < 0) err = "齿形裕度系数 cF* 不能为负。";
+    else if (!Number.isFinite(h) || h <= 0) err = "有效长度 L 必须是正数。";
+    else if (!xLocked && !Number.isFinite(x)) err = "变位系数 Xn 必须是数字。";
+    else if (Number.isFinite(m) && m > 0 && !splineModuleList(std).some((v) => Math.abs(v - m) < 1e-9)) {
+      // 体系不支持的模数：明确报错并指出可用值来自哪张表（与后端 module_series_check 同一口径）。
+      err = "模数 m=" + fmt(m) + " 不在 " + moduleSourceOf(std) + " 的可用系列（"
+          + splineModuleList(std).map(fmt).join("、") + "）。";
+    } else if ((std === "DIN" || isNf) && (db === "" || !Number.isFinite(m) || m <= 0 || !(z >= 3))) {
+      // z 已由 (d_B/A, m) 联动锁定：这里只提示必须给齐这两个输入。
+      err = isNf
+        ? "NF 花键：给公称直径 A 与模数 m（齿数 N 由 A 与 m 决定）。"
+        : "DIN 花键：给基准直径 d_B 与模数 m（齿数 z 由 d_B 与 m 决定）。";
+    } else if (db === "" && (!Number.isFinite(m) || m <= 0 || !Number.isFinite(z) || z < 3)) {
+      err = "花键：不给 " + (isNf ? "A" : "d_B") + " 时必须给 m 与 z。";
+    } else if (db !== "" && std === "GB") {
+      err = "GB/T 3478 没有基准直径 d_B 这个概念（d_B 只属 DIN 5480）。";
+    }
+    // 花键模式：隐藏框（c/β）不传；std/profile/db 系数都传给后端；x 只在有值时传（锁定态由 syncLockedZ 回填）。
+    const p = { mode: "spline", kind: curKind, std, profile: el("profileSel").value,
+                alpha, ha, hf: hfv, rho: rhov, cf: cfv, h };
+    if (gbLocked) p.x = 0;                    // GB 模型 x 恒 0（输入框已锁死，这里兜底）
+    else if (Number.isFinite(x)) p.x = x;
+    if (db !== "") p.db = dbv;
+    if (Number.isFinite(m) && m > 0) p.m = m;
+    if (Number.isFinite(z) && z >= 2) p.z = Math.round(z);
+    return { ok: !err, err, p };
+  }
+  // 齿轮体系：M 用 m 输入框，DP 用 dp 输入框（m = 25.4/DP）；M 与 DP 只能选一个。
+  const sys = el("sysSel").value;
+  const dpv = num("dp");
+  const meff = sys === "DP" ? (Number.isFinite(dpv) && dpv > 0 ? 25.4 / dpv : NaN) : m;
+  if (sys === "DP" && (!Number.isFinite(dpv) || dpv <= 0)) err = "径节 DP 必须是正数。";
+  else if (sys !== "DP" && (!Number.isFinite(m) || m <= 0)) err = "模数 m 必须是正数。";
+  else if (!Number.isFinite(z) || z < 2) err = "齿数 z 不能小于 2。";
+  else if (!Number.isFinite(alpha) || alpha <= 10 || alpha >= 50) err = "压力角 α 超出范围（10°<α<50°）。";
+  else if (!Number.isFinite(ha)) err = "齿顶高系数 ha* 必须是数字。";
+  else if (!Number.isFinite(c)) err = "顶隙系数 c* 必须是数字。";
+  else if (!Number.isFinite(beta)) err = "螺旋角 β 的度/分/秒都必须是数字。";
+  else if (!Number.isFinite(h) || h <= 0) err = "厚度 h 必须是正数。";
+  else if (!Number.isFinite(x)) err = "变位系数 Xn 必须是数字。";
+  const p = { kind: curKind, std: sys, m: meff, z: Math.round(z), alpha, ha, c, beta, h, x, x_given: true };
+  if (sys === "DP") { p.dp = dpv; delete p.m; }   // DP 不传 m（后端按 m=25.4/DP 换算；传 m 直接报错）
+  return { ok: !err, err, p };
+}
+
+// 每次输入都跑：校验按钮可用性 + 红字；顺带同步模数下拉与只读倒角框
+function validateUI() {
+  const v = collect();
+  el("warn").textContent = v.err;
+  el("out").disabled = !v.ok;
+  return v;
+}
+
+// 模数/径节下拉 ↔ 数字框联动：数字命中系列就选它，否则显示「自定义」；DP 体系用换算模数。
+// ANSI 花键模式：下拉 = 17 项 `A/B`（Ps=2P），数字框收自定义 P；下面提示行给 P/Ps 与 m=25.4/P。
+function rebuildMSel(mode) {
+  const sel = el("mSel");
+  if (sel.dataset.mode === mode) return;
+  sel.dataset.mode = mode;
+  sel.innerHTML = "";
+  const custom = document.createElement("option");
+  custom.value = "custom";
+  custom.textContent = "自定义";
+  sel.appendChild(custom);
+  if (mode.indexOf("ansi") === 0) {
+    // 候选按当前列过滤（用户定案 A）：如 A 列只列 2.5/5…32/64；数字框仍可自定义 P。
+    const colCode = mode.slice("ansi:".length);
+    const range = ansiColumnRange(colCode);
+    ansiPitchLabelsForColumn(colCode).forEach((label) => {
+      const o = document.createElement("option");
+      o.value = label;
+      const pv = ansiPitchP(label);
+      o.textContent = label + "（P=" + fmt(pv) + "，m=" + fmt(25.4 / pv) + " mm）";
+      sel.appendChild(o);
+    });
+    sel.title = "ANSI B92.1 径节" + (range ? "（当前列 " + range.label + "）" : "（17 项）")
+      + "：A/B = P/Ps（Ps 恒为 2P）";
+  } else {
+    // 花键模式按体系列该体系实际候选（GB 表 2 / DIN·NF 表实际 m 列）；普通齿轮仍是 GB/T 1357。
+    const list = mode === "gear" ? MODULES : splineModuleList(mode);
+    list.forEach((v) => {
+      const o = document.createElement("option");
+      o.value = String(v);
+      o.textContent = String(v);
+      sel.appendChild(o);
+    });
+    sel.title = mode === "gear"
+      ? "GB/T 1357 标准模数系列（第一/第二系列）"
+      : moduleSourceOf(mode) + "（可用：" + list.map(fmt).join("、") + "）";
+  }
+}
+function syncModuleSelect() {
+  const ansi = isAnsiMode();
+  const std = isSpline() ? el("stdSel").value : "gear";
+  // mode 键带上当前列代号：换齿廓列时强制重建过滤后的候选。
+  rebuildMSel(ansi ? "ansi:" + el("profileSel").value : std);
+  const m = effM();
+  if (!isSpline() && el("sysSel").value === "DP" && Number.isFinite(m)) el("m").value = fmt(m);
+  const hint = el("ansiPitchHint");
+  if (hint) hint.style.display = ansi ? "" : "none";
+  if (ansi) {
+    const p = num("m");
+    const range = ansiColumnRange(el("profileSel").value);
+    const rtxt = range ? "当前 Table 2 列（" + range.desc + "）适用 " + range.label + "。" : "";
+    if (Number.isFinite(p) && p > 0) {
+      const label = ansiPairLabel(p);
+      el("mSel").value = ansiPitchLabelsForColumn(el("profileSel").value).indexOf(label) >= 0 ? label : "custom";
+      hint.textContent = "P=" + fmt(p) + "（Ps=" + fmt(2 * p) + "）；换算模数 m=" + fmt(25.4 / p)
+        + " mm（节圆 φ = m·z）。标准写法 A/B（如 " + ansiPairLabel(p) + "）。" + rtxt;
+    } else {
+      el("mSel").value = "custom";
+      hint.textContent = "ANSI 径节从下拉选当前列适用的 A/B" + (range ? "（" + range.label + "）" : "")
+        + "，或在数字框输入 P。" + rtxt;
+    }
+    return;
+  }
+  const list = isSpline() ? splineModuleList(std) : MODULES;
+  const hit = Number.isFinite(m) ? list.find((v) => Math.abs(v - m) < 1e-9) : undefined;
+  el("mSel").value = hit ? String(hit) : "custom";
+}
+
+// 轴向倒角只读框：C = round(0.6m)，随模数实时更新（与 gear.rs 的 chamfer() 同口径）
+function syncChamfer() {
+  const m = effM();
+  el("chamfer").value = Number.isFinite(m) && m > 0 ? String(Math.round(0.6 * m)) : "—";
+}
+
+/* ─────────────────────── 花键模式 UI（标准/齿廓/d_B/系数） ─────────────────────── */
+
+// 行 id 前缀（HTML 里 label=…Label、div=…Ctl）。花键专用行与齿轮专用行互斥显示。
+const SPLINE_ROWS = ["std", "profile", "db", "hf", "rho", "cf"];
+const GEAR_ROWS = ["c", "beta", "chamfer", "sys"];
+function showRow(prefix, on) {
+  const lab = el(prefix + "Label"), ctl = el(prefix + "Ctl");
+  if (lab) lab.style.display = on ? "" : "none";
+  if (ctl) ctl.style.display = on ? "" : "none";
+}
+
+// 花键 UI 显隐/标签：花键模式只留 std/profile/db/hf/rho/cf；齿轮模式只留 c/beta/chamfer；
+// GB 下 d_B 不显示（用户定案：GB 体系没有基准直径这个概念）。
+function syncSplineUI() {
+  const on = isSpline();
+  SPLINE_ROWS.forEach((id) => showRow(id, on));
+  GEAR_ROWS.forEach((id) => showRow(id, !on));
+  el("hLabel").textContent = on ? "有效长度[L]" : "厚度[h]";
+  el("ha").title = on ? "齿顶高系数 ha*（按体系预设，可覆盖）" : "齿顶高系数 ha*";
+  if (on) {
+    const std = el("stdSel").value;
+    const ansi = std === "ANSI";
+    // ANSI：输入切到径节 P（复用 m 数字框）；α/齿根型式/配合方式由 profile 下拉决定；
+    // hf*/ρf*/cF* 由 Table 2 公式算，不给覆盖。
+    // 其余体系（GB/DIN/NF）本就是 m/z/x 驱动：m 行必须显示（GB 没模数没法用；
+    // DIN 用 d_B+m、NF 用 A+m，d_B/A 只是可选的补充入口）。
+    showRow("m", true);
+    showRow("dp", false);
+    showRow("hf", !ansi);
+    showRow("rho", !ansi);
+    showRow("cf", !ansi);
+    el("mLabel").textContent = ansi ? "径节[P]（A/B）" : "模数[m/Mn]";
+    el("m").title = ansi
+      ? "ANSI 径节 P（每英寸齿数；标准写法 A/B，B=Ps=2P）；引擎按 m=25.4/P 换算 mm"
+      : "花键模数 m（GB/DIN/NF 按体系预设，可覆盖；DIN 给 d_B、NF 给 A 后 m 或 z 可空一个）";
+    // 基准直径行：DIN 用 d_B、NF 用公称直径 A；GB/ANSI 本体系不用。
+    const bench = std === "DIN" || std === "NF";
+    showRow("db", bench);
+    if (!bench) el("db").value = ""; // 不在页面上传
+    el("dbLabel").textContent = std === "NF" ? "公称直径 A（NF）" : "基准直径 d_B";
+    el("db").placeholder = std === "NF"
+      ? "NF E22-141 查表（必给；N 由 A 与 m 决定）"
+      : "DIN 5480-2 查表（必给；z 由 d_B 与 m 决定）";
+    el("db").setAttribute("list", std === "NF" ? "nfAList" : "dinDbList");
+    // 候选列表按当前 m 过滤（m 空/表外列全表）；非基准体系清掉回落提示。
+    if (bench) fillBenchList(std);
+    else benchFallbackMsg = "";
+    syncBenchHint(bench ? std : "");
+    el("db").title = std === "NF"
+      ? "A 是 NF E22-141 的主参数（A=m(N+2x+0.4)，α=20°）；必须给 A 与 m（N 由二者决定，不单独编辑）。"
+      : "d_B 只属于 DIN 5480；必须给 d_B 与 m（z 由二者决定，不单独编辑）；GB/T 3478 下不给。";
+    el("stdSel").title = ({
+      GB: "GB/T 3478.1：模数制，不用 d_B；给 d_B 会明确报错；模数取表 2 的 15 种。",
+      DIN: "DIN 5480-1：d_B 主参数；齿数 z 由 (d_B, m) 决定（输入框已锁定）；模数取 DIN 5480-2 名义表实际 m 列。",
+      NF: "NF E22-141：A 主参数（α=20°；尺寸表 p18/p20/p21/p22 共 288 行已入库）；齿数 N 由 (A, m) 决定（输入框已锁定）；模数取尺寸表实际 m 列。",
+      ANSI: "ANSI B92.1：径节制公式驱动（径节 P + Table 2 五列，标准为英制、引擎换算 mm）；径节写 A/B（2.5/5、3/6…128/256），Ps 恒为 2P；x 不允许；rf 无标准值（切于齿根过渡弧）。",
+    })[std] || "";
+  } else {
+    // 齿轮体系：M 显示模数行，DP 显示径节行（m = 25.4/DP）。
+    const dp = el("sysSel").value === "DP";
+    showRow("m", !dp);
+    showRow("dp", dp);
+  }
+  // 因变量（α / ha* / hf* / ρf* / cF*）由齿廓预设决定：花键模式显示但只读；齿轮模式解禁。
+  for (const id of ["alpha", "ha", "hf", "rho", "cf"]) {
+    const n = el(id);
+    if (!n) continue;
+    n.readOnly = on;
+    n.title = on
+      ? "由齿廓预设决定（显示用，不可编辑；GB 30/37.5/45°、DIN 30°、NF 20°、ANSI 由 Table 2 列）"
+      : "";
+  }
+  // GB/T 3478.1 基本齿廓不含变位（用户定案 2026-09-23）：GB 花键下 x 恒为 0 且锁死
+  // （口径写进 x.title，syncLockedZ 里维护）；DIN/NF 仍是 (d_B/A, m) 派生的只读因变量。
+  syncLockedZ();   // DIN/NF：z/x 只读 + 由 (d_B/A, m) 联动回填；GB 下 x 恒 0 锁死。
+}
+
+// 齿廓下拉：按标准填预设代号（保留当前选择，否则取第一个）。
+function syncProfileSelect() {
+  const std = el("stdSel").value;
+  const sel = el("profileSel");
+  const prev = sel.value;
+  const list = involList().filter((p) => p.std === std);
+  sel.innerHTML = "";
+  list.forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p.code;
+    o.textContent = p.code + "（" + p.profile + "）";
+    sel.appendChild(o);
+  });
+  const codes = list.map((p) => p.code);
+  const prefer = std === "DIN" ? "DIN30" : (std === "NF" ? "NFP" : (std === "ANSI" ? "ANSI30P" : "GB30R"));
+  sel.value = codes.indexOf(prev) >= 0 ? prev : (codes.indexOf(prefer) >= 0 ? prefer : (codes[0] || ""));
+}
+
+// 齿廓预设 → α/ha*/hf*/ρf*/cF* 填框（算“系统预设值”，不算用户手动改 α）。
+function applySplinePreset() {
+  if (!isSpline()) return;
+  const p = involList().find((x) => x.code === el("profileSel").value);
+  if (!p) return;
+  el("alpha").value = fmt(p.alpha);
+  el("ha").value = fmt(p.ha);
+  el("hf").value = fmt(p.hf);
+  el("rho").value = fmt(p.rho);
+  el("cf").value = fmt(p.cf);
+  alphaTouched = false;
+  syncAlphaSelect();
+}
+
+// ── 基准直径候选（DIN d_B / NF A）：datalist 只列**当前 m** 的表内值 ──
+// m 空或不在表内 → 列全表（保留「先填 d_B/A、由表带出 m」的用法）。
+// 数据逐条来自 assets/din5480_2_nominal.csv / assets/nf_e22141_dims.csv（catalog 载荷），不插值。
+const BENCH_META = {
+  DIN: { key: "db", name: "d_B", list: "dinDbList", table: "DIN 5480-2 名义表" },
+  NF: { key: "a", name: "A", list: "nfAList", table: "NF E22-141 尺寸表" },
+};
+let benchFallbackMsg = "";   // 最近一次 m 变化触发的回落说明（可见提示，优先显示）
+function benchRows(std) {
+  const rows = std === "NF" ? involNfNominal : (std === "DIN" ? involDinNominal : []);
+  const mv = Number(el("m").value);
+  const inTable = Number.isFinite(mv) && mv > 0
+    && rows.some((r) => Math.abs(Number(r.m) - mv) < 1e-9);
+  return { rows: inTable ? rows.filter((r) => Math.abs(Number(r.m) - mv) < 1e-9) : rows, inTable, m: mv };
+}
+// 当前 m 下的候选直径值（升序去重；m 不在表内 → 全表值）。
+function benchValues(std) {
+  const b = benchRows(std);
+  const key = BENCH_META[std].key;
+  const vals = [...new Set(b.rows.map((r) => Number(r[key])))]
+    .filter((v) => Number.isFinite(v))
+    .sort((a, c) => a - c);
+  return { ...b, vals };
+}
+// 重建 datalist（只列当前 m 的合法值）；返回候选信息供联动/回落复用。
+function fillBenchList(std) {
+  const dl = el(BENCH_META[std].list);
+  if (!dl) return benchValues(std);
+  const b = benchValues(std);
+  dl.innerHTML = "";
+  b.vals.forEach((v) => {
+    const o = document.createElement("option");
+    o.value = String(v);
+    dl.appendChild(o);
+  });
+  return b;
+}
+// DIN 5480-2 名义表 d_B 候选（datalist）；目录拿不到就空。
+function fillDinDbList() { return fillBenchList("DIN"); }
+// NF E22-141 公称直径 A 候选（datalist）；目录拿不到就空。
+function fillNfAList() { return fillBenchList("NF"); }
+
+// 基准直径行的可见提示：回落信息优先，否则说明当前 m 的候选范围（DIN/NF）。
+function syncBenchHint(std) {
+  const h = el("dbListHint");
+  if (!h) return;
+  if (!isSpline() || !BENCH_META[std]) {
+    h.className = "hint warn";
+    h.textContent = "";
+    return;
+  }
+  const meta = BENCH_META[std];
+  if (benchFallbackMsg) {
+    h.className = "hint warn";
+    h.textContent = benchFallbackMsg;
+    return;
+  }
+  const b = benchValues(std);
+  h.className = "hint";
+  h.textContent = b.inTable
+    ? "当前 m=" + fmt(b.m) + "：" + meta.name + " 候选 " + b.vals.length + " 个（来自 " + meta.table + "；改 m 立即重列）"
+    : meta.name + " 候选 " + b.vals.length + " 个（未选 m 或 m 不在表内：先列全表，选定 m 后自动缩小）";
+}
+// m 变化/切体系时：当前 d_B/A 不在该 m 的候选里 → 回落到**最近的合法表值**并给可见提示
+// （不静默保留非法组合；只在 m 提交/切换时触发，不在 A 输入途中打断用户）。
+function syncBenchFallback(std) {
+  if (!isSpline() || !BENCH_META[std]) { benchFallbackMsg = ""; return; }
+  const meta = BENCH_META[std];
+  const b = benchValues(std);
+  const cur = Number(String(el("db").value).trim());
+  if (!b.inTable || !b.vals.length || !(cur > 0) || b.vals.some((v) => Math.abs(v - cur) < 1e-6)) {
+    benchFallbackMsg = "";
+    return;
+  }
+  const fb = b.vals.reduce((a, c) => (Math.abs(c - cur) < Math.abs(a - cur) - 1e-12 ? c : a));
+  el("db").value = fmt(fb);
+  benchFallbackMsg = "⚠ 已从 " + meta.name + "=" + fmt(cur) + " 回落到 " + meta.name + "=" + fmt(fb)
+    + "（最近合法值）：该值不在 m=" + fmt(b.m) + " 的 " + meta.table + " 候选里（该 m 有 "
+    + b.vals.length + " 个合法值）。";
+}
+
+// 齿数是否由 (d_B/A, m) 锁定（DIN/NF；GB/ANSI 不锁）。
+function isZLocked() {
+  if (!isSpline()) return false;
+  const std = el("stdSel").value;
+  return std === "DIN" || std === "NF";
+}
+// 由基准直径（DIN d_B / NF A）与模数 m 推 z（与后端 derive_z_from_bench_m 同口径）：
+// 表内直查优先（多变体取 |x| 最小 / 最接近 NF 主系列 x=0.8；current 命中表内变体则保留）；
+// 表外按公式区间取整。非法/推不出 → NaN。
+function deriveBenchZ(std, bench, m, current) {
+  if (!Number.isFinite(bench) || bench <= 0 || !Number.isFinite(m) || m <= 0) return NaN;
+  const key = std === "NF" ? "a" : "db";
+  const rows = (std === "NF" ? involNfNominal : involDinNominal)
+    .filter((r) => Math.abs(Number(r[key]) - bench) < 1e-6 && Math.abs(Number(r.m) - m) < 1e-9);
+  const cand = [...new Set(rows.map((r) => Number(r.z)))].filter((v) => v >= 3 && v <= 1000).sort((a, b) => a - b);
+  const xOf = (z) => std === "NF" ? (bench - m * (z + 0.4)) / (2 * m) : (bench - m * (z + 1.1)) / (2 * m);
+  if (cand.length) {
+    if (Number.isFinite(current) && cand.indexOf(current) >= 0) return current;   // 表内显式变体：保留
+    if (cand.length === 1) return cand[0];
+    if (std === "NF") return cand.reduce((a, b) => Math.abs(xOf(a) - 0.8) <= Math.abs(xOf(b) - 0.8) ? a : b);
+    return cand.reduce((a, b) => Math.abs(xOf(a)) <= Math.abs(xOf(b)) ? a : b);
+  }
+  if (std === "DIN") {
+    const lo = Math.ceil(bench / m - 2.0 - 1e-9), hi = Math.floor(bench / m - 1.0 + 1e-9);
+    if (hi < lo || hi < 3 || lo > 1000) return NaN;
+    let best = NaN;
+    for (let z = Math.max(3, lo); z <= Math.min(1000, hi); z++) {
+      if (!Number.isFinite(best) || Math.abs(xOf(z)) < Math.abs(xOf(best)) - 1e-12) best = z;
+    }
+    return best;
+  }
+  // NF 表外：主系列 x=0.8 → z = round(A/m − 2.0)。
+  const z = Math.round(bench / m - 2.0);
+  return z >= 1 && z <= 1000 ? z : NaN;
+}
+// DIN/NF：齿数框只读 + 由 (d_B/A, m) 联动回填；GB/ANSI 不锁 z。
+// GB：x 恒为 0 且锁死（GB/T 3478 基本齿廓不含变位）；DIN/NF 下 x 是由 (d_B/A, m, z) 解出的只读因变量。
+let benchXLocked = false;   // 上一次 x 是否处于因变量锁定态（切回 GB/ANSI 时清掉回填值）
+function syncLockedZ() {
+  const std = el("stdSel").value;
+  const gbLocked = isSpline() && std === "GB";   // GB 不变位：x 恒 0
+  const locked = isZLocked();
+  const zEl = el("z");
+  const xEl = el("x");
+  const bench = std === "NF" ? "公称直径 A" : "基准直径 d_B";
+  zEl.readOnly = locked;
+  zEl.title = locked
+    ? "由" + bench + "与模数 m 联动计算（表内直查；表外按公式区间取整），不单独编辑。"
+    : "";
+  el("zLabel").textContent = "齿数[z]" + (locked ? "（由 " + (std === "NF" ? "A 与 m" : "d_B 与 m") + "决定）" : "");
+  if (xEl) {
+    xEl.readOnly = locked || gbLocked;
+    xEl.title = locked
+      ? "因变量：由 " + (std === "NF" ? "A" : "d_B") + "、m、z 按 " + (std === "NF" ? "NF p07" : "DIN 5480-2") + " 公式解出（显示用，不可编辑）。"
+      : (gbLocked ? "GB/T 3478 基本齿廓不含变位：x 恒为 0（不可编辑）。" : "");
+    // GB：强制回 0（模型不变位）；从 DIN/NF 切回 GB/ANSI：把回填的因变量 x 复位为 0。
+    if (gbLocked) xEl.value = "0";
+    else if (!locked && benchXLocked) xEl.value = "0";
+  }
+  benchXLocked = locked;
+  if (!locked) return;
+  const z = deriveBenchZ(std, num("db"), num("m"), num("z"));
+  if (Number.isFinite(z)) zEl.value = String(z);
+  if (xEl) {
+    const x = deriveBenchX(std, num("db"), num("m"), Number(zEl.value));
+    if (Number.isFinite(x)) {
+      xEl.value = fmt(x);
+    } else {
+      xEl.value = "";
+    }
+  }
+}
+// 因变量 x：DIN `x=(d_B−m(z+1.1))/(2m)`、NF `x=(A−m(N+0.4))/(2m)`；
+// 表内命中 (d_B/A, m, z) 时优先用表值（与后端 resolve_* 同口径）。
+function deriveBenchX(std, bench, m, z) {
+  if (!Number.isFinite(bench) || bench <= 0 || !Number.isFinite(m) || m <= 0 || !(z > 0)) return NaN;
+  const key = std === "NF" ? "a" : "db";
+  const hit = (std === "NF" ? involNfNominal : involDinNominal)
+    .find((r) => Math.abs(Number(r[key]) - bench) < 1e-6
+      && Math.abs(Number(r.m) - m) < 1e-9
+      && Number(r.z) === z
+      // 载荷含 p18 重复行（x 列缺省 → JSON null）；`Number(null)===0` 会假命中，必须显式排除。
+      && r.x !== null && r.x !== undefined && Number.isFinite(Number(r.x)));
+  if (hit) return Number(hit.x);
+  return std === "NF" ? (bench - m * (z + 0.4)) / (2 * m) : (bench - m * (z + 1.1)) / (2 * m);
+}
+// 选了基准直径（DIN d_B / NF A）→ 唯一 m 时自动带出；z 随后由 (d_B/A, m) 联动回填。
+function fillBench() {
+  const on = isSpline();
+  const std = on ? el("stdSel").value : "";
+  const v = Number(String(el("db").value).trim());
+  const rows = std === "NF" ? involNfNominal : (std === "DIN" ? involDinNominal : []);
+  if (v > 0) {
+    const key = std === "NF" ? "a" : "db";
+    const hits = rows.filter((r) => Math.abs(Number(r[key]) - v) < 1e-6);
+    const ms = [...new Set(hits.map((r) => Number(r.m)))].filter(Number.isFinite);
+    if (ms.length === 1) el("m").value = fmt(ms[0]);
+  }
+  syncLockedZ();
+  syncKindHint();   // 自动带出后，表达式/命令行提示立即跟上
+}
+
+// 从 `/api/parts` 取花键预设与 DIN 名义表（与 shaft_gui 同源）；失败退兜底表。
+// 取数走共享助手：非 2xx/网络故障不再静默（红框进 #status），同时降级不堵页面。
+async function loadInvolCatalog() {
+  try {
+    const resp = await fetchApi("/api/parts", { cache: "no-store" }, "/api/parts");
+    if (!resp.ok) throw new Error(resp.error);
+    const cat = resp.data;
+    const inv = cat && cat.spline_engine ? cat.spline_engine : null;
+    involPresets = (inv && Array.isArray(inv.invol_presets) ? inv.invol_presets : [])
+      .filter((p) => p && typeof p.code === "string" && p.code !== "");
+    involDinNominal = (inv && Array.isArray(inv.din_nominal) ? inv.din_nominal : [])
+      .filter((r) => r && Number.isFinite(Number(r.db)));
+    involNfNominal = (inv && Array.isArray(inv.nf_nominal) ? inv.nf_nominal : [])
+      .filter((r) => r && Number.isFinite(Number(r.a)));
+    const mods = (arr) => (Array.isArray(arr) ? arr : [])
+      .map(Number).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+    involGbModules = mods(inv && inv.gb_modules);
+    involDinModules = mods(inv && inv.din_modules);
+    involNfModules = mods(inv && inv.nf_modules);
+    involAnsiPitches = (inv && Array.isArray(inv.ansi_pitches) ? inv.ansi_pitches : [])
+      .filter((v) => typeof v === "string" && /^[0-9.]+\/[0-9.]+$/.test(v));
+  } catch (e) {
+    involPresets = [];
+    involDinNominal = [];
+    involNfNominal = [];
+    involGbModules = [];
+    involDinModules = [];
+    involNfModules = [];
+    involAnsiPitches = [];
+  }
+  el("mSel").dataset.mode = "";   // 目录到货后重建 ANSI A/B 选项
+  fillDinDbList();
+  fillNfAList();
+  syncBenchHint(el("stdSel").value);
+  syncProfileSelect();
+  applySplinePreset();
+}
+
+/* ─────────────────────────── 视图按钮 ─────────────────────────── */
+
+// 视图按钮（单选/分段控件）：只列当前种类可生成的视图，一次只亮一个，点击立刻刷新预览
+function buildViews() {
+  const row = el("viewRow");
+  row.innerHTML = "";
+  // 内齿轮没有侧视图/简化正视图：当前视图不可用时自动回剖视图
+  if (!viewAvailable(curView, curKind)) curView = "section";
+  VIEWS.filter((v) => viewAvailable(v.key, curKind)).forEach((v) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "opt" + (v.key === curView ? " on" : "");
+    b.dataset.v = v.key;
+    b.textContent = viewLabel(v.key, curKind);
+    b.addEventListener("click", () => {
+      curView = v.key;
+      [...row.querySelectorAll("button")].forEach((x) => x.classList.toggle("on", x.dataset.v === curView));
+      el("viewName").textContent = viewLabel(curView, curKind);
+      syncKindHint();
+      fetchPreview();   // 视图切换不走防抖，立即刷新
+    });
+    row.appendChild(b);
+  });
+  el("viewName").textContent = viewLabel(curView, curKind);
+}
+
+// 种类按钮（外齿轮/内齿轮）：切换时按需回默认 h、重排视图按钮、立即刷新预览与派生值
+function buildKinds() {
+  const row = el("kindRow");
+  row.innerHTML = "";
+  KINDS.forEach((k) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "opt" + (k.key === curKind ? " on" : "");
+    b.dataset.k = k.key;
+    b.textContent = kindName(k);
+    b.title = kindSub(k);
+    b.addEventListener("click", () => {
+      if (curKind === k.key) return;
+      curKind = k.key;
+      [...row.querySelectorAll("button")].forEach((x) => x.classList.toggle("on", x.dataset.k === curKind));
+      if (!viewAvailable(curView, curKind)) curView = "section";
+      syncDefaultH(false);   // 切种类：用户没手动改过 h → 换成该种类默认（内 15m / 外 10m）
+      applyKindUI();
+      validateUI();
+      onCommit();            // 种类切换不走防抖，立即刷新
+    });
+    row.appendChild(b);
+  });
+}
+
+// 种类相关 UI：标题/副标题/视图按钮/默认 h 提示/命令行提示（切种类/切模式时统一刷新）
+function applyKindUI() {
+  const k = kindOf();
+  const spline = isSpline();
+  // 标题固定写工具名（两种模式都支持，当前模式/种类放副标题里）
+  el("pageSub").textContent = spline ? "渐开线花键（GB/T 3478.1 / DIN 5480 / NF E22-141 / ANSI B92.1）" : "齿轮（外齿轮 / 内齿轮（齿圈））";
+  el("modeSub").textContent = "· 当前：" + (spline ? "花键模式 · " : "齿轮模式 · ") + kindName(k);
+  document.title = spline ? "OCSM 齿轮 / 花键（渐开线花键）" : "OCSM 齿轮（外齿轮 / 内齿轮）";
+  buildKinds();
+  buildViews();
+  syncHRule();
+  syncBetaHint();
+  syncKindHint();
+}
+
+// 参数 → 「OCSMGEAR 命令行等价」与「轴生成器轴段表达式」两份快照：共用同一份 collect()
+// 结果（v.p），提示与表达式不会各取各的而格式漂移。expr 是轴生成器段语法的一行，
+// 不带 view/at（那是视图/插入参数，不是段参数）；内齿/变位/斜齿在轴上表达不了的另行告警。
+// 渐开线花键的轴段 `INVOLSPLINE` 已撤（用户定案：只在齿轮生成器生成），花键模式不再给轴段表达式。
+// 返回 { cli, expr, notes, warnings }：cli 不含 view（由 syncKindHint 统一补）。
+function equivalence(v) {
+  const notes = [], warnings = [];
+  if (isSpline()) {
+    const db = String(el("db").value).trim();
+    const isNf = el("stdSel").value === "NF";
+    let cli = "花键 " + (curKind === "internal" ? "内花键 " : "") + "std=" + el("stdSel").value;
+    if (el("stdSel").value === "ANSI") cli += " profile=" + el("profileSel").value;
+    if (db !== "") cli += (isNf ? " a=" : " db=") + db;
+    if (v.ok && v.p.pitch) cli += " P" + v.p.pitch;
+    else if (v.ok && v.p.m !== undefined) cli += " " + fmt(v.p.m);
+    if (v.ok && v.p.z !== undefined) cli += " " + v.p.z;
+    // 统一齿形表达式（用户 2026-09-23 定案）：齿轮/花键共用一套轴段语法。
+    // 花键的 DA/DF 必须由标准引擎算（GB/DIN/NF/ANSI 公式不同），用最近一次
+    // `/api/gear_info` 的 `expr`；fetchInfo 到达后会再刷一次表达式框。
+    const info = involLastInfo;
+    const stdNow = el("stdSel").value;
+    const fresh = info && info.ok && info.mode === "spline"
+      && info.kind === curKind && info.std === stdNow
+      && (v.ok && v.p.m !== undefined ? Math.abs(Number(info.m) - v.p.m) < 1e-3 : true)
+      && (v.ok && v.p.z !== undefined ? Number(info.z) === Number(v.p.z) : true)
+      && (v.ok && v.p.x !== undefined ? Math.abs(Number(info.x) - v.p.x) < 1e-3 : true);
+    const expr = fresh && typeof info.expr === "string" ? info.expr : "";
+    if (!expr) notes.push("正在按标准计算 DA/DF（轴生成器表达式稍后刷新）…");
+    return { cli, expr, notes, warnings };
+  }
+  const cli = v.ok
+    ? (curKind === "internal" ? "int" : "ext") + (v.p.std === "DP"
+        ? " std=DP dp=" + fmt(v.p.dp) + " " + v.p.z + " " + fmt(v.p.h) + " alpha " + fmt(v.p.alpha)
+        : " " + fmt(v.p.m) + " " + v.p.z + " " + fmt(v.p.h) + " alpha " + fmt(v.p.alpha))
+    : (curKind === "internal" ? "int" : "ext") + " <m> <z> <h> alpha <α>";
+  let expr = "";
+  if (v.ok) {
+    const p = v.p;
+    // DP 的 collect() 删掉了 p.m（只留 dp 原值）：表达式按 m = 25.4/DP 换算成统一齿形段的 M。
+    const meff = p.std === "DP" ? 25.4 / p.dp : p.m;
+    const internal = curKind === "internal";
+    const beta = Number(p.beta) || 0;
+    // 与 gear.rs::GearParams::da()/df() 同式：d = mt·z（斜齿）、ha = m(ha*+x)、hf = m(ha*+c*−x)。
+    const mt = meff / Math.cos(beta * Math.PI / 180);
+    const d = mt * p.z;
+    const haH = meff * (p.ha + p.x);
+    const hfH = meff * (p.ha + p.c - p.x);
+    const da = internal ? Math.max(d - 2 * haH, 0) : d + 2 * haH;
+    const df = internal ? d + 2 * hfH : Math.max(d - 2 * hfH, 0);
+    // 统一表达式 DA/DF = 大径/小径（外齿 = 齿顶/齿根；内齿 = 外侧齿根/里侧齿顶）。
+    expr = "GEAR " + (internal ? "IN" : "EX")
+      + " M" + fmt(meff) + " Z" + p.z + " ALPHA" + fmt(p.alpha)
+      + " X" + fmt(p.x) + " DA" + fmt(internal ? df : da) + " DF" + fmt(internal ? da : df)
+      + " BETA" + fmt(beta) + " H" + fmt(p.h);
+    if (p.std === "DP") notes.push("径节制 DP：表达式已换算成模数 M（轴段齿形段只认模数）。");
+    if (Math.abs(beta) > 1e-12) warnings.push("斜齿 β=" + fmt(beta) + "°：轴段齿形段只做直齿（BETA 会报「斜齿未实现」），表达式按直齿给出。");
+  }
+  return { cli, expr, notes, warnings };
+}
+
+// 表达式预览 + 提示（由 syncKindHint 在参数/模式/种类/视图变化时同步调用）
+function syncExpr(v, eq) {
+  el("exprPreview").value = eq && eq.expr ? eq.expr : "";
+  el("exprPreview").title = "统一齿形表达式：齿轮/花键同一套轴段语法，DA/DF 由标准算出，可直接粘贴到轴生成器；"
+    + "MARK=SPLINE 常规侧视图画小径细实线、GEAR 不画（齿轮「无齿根线」）。"
+    + "内齿/内花键在轴上按最小口径绘制（外轮廓 = 大径 DA、内孔线 = 小径 DF；剖面线按实体段近似，不挖孔）。";
+  el("exprCopy").disabled = !(eq && eq.expr);
+  const hint = el("exprHint");
+  const msgs = [];
+  if (!(v && v.ok)) msgs.push("参数不合法（见上方红字），先修正后才会给出表达式。");
+  else msgs.push("可直接粘贴到轴生成器的表达式框（齿轮/花键同一套齿形段语法；不含 view/at 等插入参数）。");
+  if (eq) msgs.push(...(eq.notes || []), ...(eq.warnings || []));
+  hint.textContent = msgs.join(" ");
+  hint.className = "hint" + (eq && eq.warnings && eq.warnings.length ? " bad" : "");
+}
+
+// 复制表达式：优先 navigator.clipboard；不可用/被拒绝时回退「选中文本 + 提示 Ctrl+C」。
+async function copyExpr() {
+  const box = el("exprPreview");
+  const text = box.value;
+  if (!text) return;
+  let ok = false;
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch (e) { ok = false; }
+  const hint = el("exprHint");
+  if (ok) {
+    hint.className = "hint ok";
+    hint.textContent = "已复制：" + text + "（粘贴到轴生成器段表的表达式框或齿轮齿形输入框即可成段）";
+    return;
+  }
+  try { box.focus(); if (box.select) box.select(); } catch (e) { /* 忽略 */ }
+  hint.className = "hint warn";
+  hint.textContent = "剪贴板不可用，已选中表达式——请按 Ctrl+C 手动复制。";
+}
+
+// 命令行等价用法（随模式/种类/参数/视图同步）；体系口径写在各控件 title 里，不常驻。
+function syncKindHint() {
+  const v = collect();
+  const viewCn = viewLabel(curView, curKind);
+  const eq = equivalence(v);
+  el("kindHint").innerHTML = "命令行等价用法：<code>OCSMGEAR " + eq.cli + " view " + viewCn + "</code>";
+  syncExpr(v, eq);
+}
+
+/* ─────────────────────────── 预览（/api/gear_svg） ─────────────────────────── */
+
+// 参数拼 URL：花键模式（mode=spline&std=…&db=…&m=…&z=…&alpha=…&ha=…&hf=…&rho=…&cf=…&h=…&x=…；
+// ANSI 用 `pitch=A/B` 原值，如 `pitch=5/10`）；齿轮模式保持原有键序（m z alpha ha c beta h x）。
+// 空值跳过（DIN 允许 m/z 缺一个）。
+function paramQS(p) {
+  if (p.mode === "spline") {
+    let q = "mode=spline&kind=" + p.kind + "&std=" + p.std + "&profile=" + encodeURIComponent(p.profile || "");
+    const push = (k, v) => { if (v !== undefined && v !== null && v !== "") q += "&" + k + "=" + v; };
+    push(p.std === "NF" ? "a" : "db", p.db);
+    // ANSI 径节发 A/B 原值（`pitch=5/10`）：`/` 在查询值里是合法字符，直接发原文，
+    // 后端 parse_ansi_pitch 原样接收（若发 `%2F` 就需要后端解码，两边只留这一套写法）。
+    push(p.std === "ANSI" ? "pitch" : "m", p.std === "ANSI" ? p.pitch : p.m);
+    push("z", p.z);
+    push("alpha", p.alpha); push("ha", p.ha); push("hf", p.hf); push("rho", p.rho); push("cf", p.cf);
+    push("h", p.h); push("x", p.x);
+    return q;
+  }
+  let q = "kind=" + p.kind + "&std=" + (p.std || "M");
+  const push = (k, v) => { if (v !== undefined && v !== null && v !== "") q += "&" + k + "=" + v; };
+  push("dp", p.dp); push("m", p.m); push("z", p.z);
+  push("alpha", p.alpha); push("ha", p.ha); push("c", p.c);
+  push("beta", p.beta); push("h", p.h); push("x", p.x);
+  return q;
+}
+function svgUrl(p) { return "/api/gear_svg?" + paramQS(p) + "&view=" + curView + "&n=1"; }
+
+function showPreviewError(msg) {
+  el("perr").textContent = "预览失败：" + msg;
+  el("perr").className = "bad";
+}
+function clearPreviewError() { el("perr").textContent = ""; el("perr").className = ""; }
+
+// 先 fetch 拿结果：成功才把可见 <img> 的 src 指过去（失败保留上一张图，只出红字）
+async function fetchPreview() {
+  const v = collect();
+  if (!v.ok) { showPreviewError(v.err); return; }
+  const url = svgUrl(v.p);
+  const my = ++seqPreview;
+  // 共享取数助手（文本端点：SVG）；失败先 text() 再解 JSON error，红框进 #status + 本区 #perr
+  const r = await fetchText(url, { cache: "no-store" }, "/api/gear_svg");
+  if (my !== seqPreview) return;
+  if (!r.ok) { showPreviewError(r.error); return; }
+  clearPreviewError();
+  el("preview").src = url;   // src 指向 /api/gear_svg（浏览器对刚请求过的 URL 直接命中缓存）
+}
+
+/* ─────────────────────────── 派生值（/api/gear_info） ─────────────────────────── */
+
+// 数字显示：整数不带小数点，其余最多 4 位小数（与 gear.rs 的 trim() 同口径）
+function fmt(v) {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "?";
+  if (Math.abs(v - Math.round(v)) < 1e-9) return String(Math.round(v));
+  return v.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+// 信息行：齿轮 = 分度圆/齿顶/齿根/ρ/倒角/齿距角；花键 = 引擎派生值 + d_B 来源。
+function renderInfo(j) {
+  if (j.mode === "spline") { renderSplineInfo(j); return; }
+  const internal = j.kind === "internal";
+  const items = [
+    ["体系", j.std || "M", "", j.std === "DP" ? "径节制：m = 25.4/DP" : "模数制（输入模数 m）"],
+  ];
+  if (j.std === "DP") items.push(["径节 DP", j.dp, "", "DP 原值；m = 25.4/DP"], ["模数 m（换算）", j.m, " mm", "由 DP 换算"]);
+  items.push(
+    ["分度圆 d", j.d, " mm", ""],
+    ["压力角 α", j.alpha, "°", "基准齿形角（GB/T 1356 默认 20°）"],
+    ["端面压力角 αt", j.alpha_t, "°", "αt = atan(tan αn / cos β)；直齿 αt = αn"],
+    ["基圆 db", j.db, " mm", "db = d·cosαt"],
+    [internal ? "齿顶圆 da（内）" : "齿顶圆 da", j.da, " mm",
+      internal ? "内齿轮齿顶圆在里侧（da < d）" : ""],
+    [internal ? "齿根圆 df（外）" : "齿根圆 df", j.df, " mm",
+      internal ? "内齿轮齿根圆在外侧（df > d，齿圈外壁从这里往外延伸）" : ""],
+    ["齿根圆角 ρ", j.rho, " mm", ""],
+  );
+  if (internal) {
+    items.push(["圆角圆心半径 rc", j.fillet_center_r, " mm",
+      "齿根圆角圆心所在半径：内齿轮 rc = rf − ρ（外齿轮是 rf + ρ）"]);
+  }
+  items.push(["倒角 C", j.chamfer, "", ""], ["齿距角", j.pitch_angle, "°", ""]);
+  el("info").innerHTML = items
+    .map(([k, val, unit, tip]) =>
+      '<span' + (tip ? ' title="' + tip + '"' : "") + '><span class="k">' + k + "</span> = <b>" + fmt(val) + unit + "</b></span>")
+    .join("");
+}
+
+// 花键信息行：m/z/x、d_B（含来源）、d/db、大径/小径（内花键外/里侧）、ρf/cF、标准/齿廓。
+function renderSplineInfo(j) {
+  const internal = j.kind === "internal";
+  const ansi = j.pitch !== null && j.pitch !== undefined;
+  const items = [
+    ["标准", j.std_code, "", "GB/T 3478.1-2008 / DIN 5480-1:2015 / NF E22-141 / ANSI B92.1"],
+    ["齿廓", j.profile, "", ""],
+  ];
+  if (ansi) {
+    items.push(
+      ["径节 P", j.pitch, "（节圆 φ" + fmt(j.d) + " mm）", "径节原值（每英寸齿数；Ps=2P）；节圆已换算 mm"],
+      ["径节写法 P/Ps", j.pitch_label || (fmt(j.pitch) + "/" + fmt(j.ps)), "", "A/B 成对写法（标准口径；Ps 恒为 2P）"],
+      ["stub pitch Ps", j.ps, "", "Ps = 2P（只用于标识显示）"],
+      ["换算模数 m", j.m, " mm", "m = 25.4/P（引擎内部/输出统一 mm）"],
+    );
+  } else {
+    items.push(["模数 m", j.m, " mm", ""]);
+  }
+  items.push(
+    ["齿数 z", j.z, "", ""],
+    ["变位系数 x", j.x, "", ansi ? "ANSI 无变位（恒 0）" : "DIN x∈[−0.05, 0.45]"],
+    ["压力角 α", j.alpha, "°", "花键基本齿廓压力角"],
+    ["分度圆 d", j.d, " mm", "d = m·z = N/P"],
+    ["基圆 db", j.db, " mm", "db = d·cosα"],
+    [internal ? (ansi ? "大径 Dri（外侧齿根）" : "大径 D_ei（外侧齿根）") : (ansi ? "大径 Do" : "大径 da"), j.da, " mm",
+      ansi ? "ANSI Table 2（Do=(N+1)/P）" : (internal ? "GB 表 3 / DIN d_f2=d_B" : "GB 表 3 / DIN d_a1")],
+    [internal ? (ansi ? "小径 Di（里侧齿顶）" : "小径 D_ii（里侧齿顶）") : (ansi ? "小径 Dre" : "小径 df"), j.df, " mm",
+      ansi ? "ANSI Table 2（Dre 按径节三段）" : (internal ? "GB D_Fe max+2C_F / DIN d_a2" : "GB 表 3 / DIN d_f1")],
+  );
+  if (ansi) {
+    items.push(
+      ["外花键 form DFe", j.dfe, "", "Table 2 渐开线起始圆（外花键）"],
+      ["内花键 form DFi", j.dfi, "", "Table 2 渐开线起始圆（内花键；B 列含 −0.004 in = −0.1016 mm，输出 mm）"],
+      ["有效齿槽宽 Sv min", j.sv_min, "", "Table 2；基本齿厚 t = p − Sv"],
+    );
+  }
+  items.push(
+    ["齿根圆角 ρf", j.rho, "", ansi ? "无标准数值依据（切于齿根过渡弧构造）" : "ρf*·m"],
+    ["齿形裕度 cF", j.cf, "", ansi ? "cF=0.001D（Table 2；标准英寸常量 min 0.002 in=0.0508 mm、max 0.010 in=0.254 mm；输出 mm）" : "cF*·m"],
+  );
+  if (j.d_b !== null && j.d_b !== undefined) items.push(["基准直径 d_B", j.d_b, " mm", "DIN 主参数（GB 无此概念）"]);
+  if (j.a !== null && j.a !== undefined) items.push(["公称直径 A", j.a, " mm", "NF E22-141 主参数（A=m(z+2x+0.4)）"]);
+  if (j.origin) items.push(["基准直径来源", j.origin, "", "查表 / 推导 / 按基准直径重算 的来源说明"]);
+  if (j.inspection) items.push(["检验尺寸", j.inspection, "", "DIN 5480-2：M1 外花键跨棒距 / M2 内花键棒间距 / k 跨测齿数 / W_k 公法线"]);
+  el("info").innerHTML = items
+    .map(([k, val, unit, tip]) =>
+      '<span' + (tip ? ' title="' + tip + '"' : "") + '><span class="k">' + k + "</span> = <b>" + fmt(val) + unit + "</b></span>")
+    .join("");
+}
+
+// 后端提示（notes）：逐条一行；错误用红色、普通提示用橙色
+function setNotes(list, isErr) {
+  const box = el("notes");
+  box.className = "hint" + (list && list.length ? (isErr ? " bad" : " warn") : "");
+  box.innerHTML = "";
+  (list || []).forEach((t) => {
+    const d = document.createElement("div");
+    d.textContent = (isErr ? "✗ " : "⚠ ") + t;
+    box.appendChild(d);
+  });
+}
+
+async function fetchInfo() {
+  const v = collect();
+  if (!v.ok) { el("info").innerHTML = ""; setNotes([v.err], true); return; }
+  const my = ++seqInfo;
+  const r = await fetchApi("/api/gear_info?" + paramQS(v.p), { cache: "no-store" }, "/api/gear_info");
+  if (my !== seqInfo) return;
+  if (!r.ok) {
+    involLastInfo = null;
+    el("info").innerHTML = "";
+    setNotes(["派生值获取失败：" + r.error], true);   // 红框也已在 #status（共享助手）
+    return;
+  }
+  const j = r.data;
+  renderInfo(j);
+  setNotes(j.notes || [], false);
+  involLastInfo = j;
+  syncKindHint();   // 花键统一表达式要等引擎算出的 DA/DF（info.expr）
+}
+
+/* ─────────────────────────── 输入防抖 / 立即刷新 ─────────────────────────── */
+
+// 任何参数变化：立刻校验 + 同步下拉/显隐/默认 h/提示，然后防抖刷预览(250ms)与派生值(300ms)
+function onInput() {
+  syncSplineUI();           // 模式显隐（含 GB 下隐藏 d_B）
+  syncModuleSelect();
+  syncChamfer();
+  syncAlphaSelect();        // 压力角：数字框 → 下拉（命中常用档就选它，否则「自定义」）
+  syncDefaultH(false);      // 改 m 时：用户没手动改过 h → h 跟着 10m/15m 走；改过则保留
+  syncDefaultAlpha(false);  // 齿轮模式：未手动改过 α → 保持 20°；花键模式不动（预设驱动）
+  syncHRule();
+  syncAlphaHint();
+  syncKindHint();
+  validateUI();
+  clearTimeout(tPreview); tPreview = setTimeout(fetchPreview, 250);
+  clearTimeout(tInfo);    tInfo = setTimeout(fetchInfo, 300);
+}
+
+// 失焦 / 回车：不等防抖，立即刷新一次
+function onCommit() {
+  clearTimeout(tPreview); clearTimeout(tInfo);
+  fetchPreview(); fetchInfo();
+}
+
+/* ─────────────────────────── 生成到图纸（/api/gear_export） ─────────────────────────── */
+
+async function exportToDrawing() {
+  const v = collect();
+  if (!v.ok) { validateUI(); return; }
+  ocsmStatus("生成中…");
+  const r = await fetchApi("/api/gear_export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // beta 是度的十进制值（由度分秒换算），view 一起传；kind 在 v.p 里；键名与 gear.rs 一致
+    body: JSON.stringify(Object.assign({}, v.p, { view: curView })),
+  }, "/api/gear_export");
+  if (!r.ok) return; // 后端 error 已由共享助手原样写进 #status（红框）
+  const msg = r.data.message || "已生成到图纸";
+  ocsmStatusOk(msg);
+  // 与零件库「零件出库」同款：成功后自动关窗；浏览器拒绝自关时提示手动切回
+  setTimeout(() => {
+    try { window.close(); } catch (e) { /* 被拒绝时忽略 */ }
+    ocsmStatusOk(msg + "（若本窗口未自动关闭，请 Alt+Tab 切回图纸继续）");
+  }, 300);
+}
+
+/* ─────────────────────────── 心跳保活 ─────────────────────────── */
+
+// 心跳：告诉插件"齿轮窗口还开着"（避免重复开窗）；关闭时 bye=1
+function ping(bye) {
+  try { fetch("/api/page_ping?p=gear" + (bye ? "&bye=1" : ""), { cache: "no-store" }); } catch (e) {}
+}
+
+/* ─────────────────────────── 初始化 ─────────────────────────── */
+(async function init() {
+  // 初始化兜底：任何 JS 异常都写到状态行，避免"面板半渲染"看不出原因
+  window.addEventListener("error", (e) => {
+    const s = el("status");
+    s.textContent = "脚本错误：" + e.message;
+    s.className = "bad";
+  });
+
+  ping(false);
+  setInterval(() => ping(false), 5000);
+  window.addEventListener("beforeunload", () => ping(true));
+  window.addEventListener("pagehide", () => ping(true));
+
+  // 模数/径节下拉：模块系列或 ANSI 17 项 A/B（在 syncModuleSelect 里按模式重建）
+  rebuildMSel("module");
+  const sel = el("mSel");
+  sel.addEventListener("change", () => {
+    if (sel.value !== "custom") {
+      // ANSI 下拉值是 A/B（如 5/10），数字框只收 P 数值；其余体系直接填模数值。
+      el("m").value = isAnsiMode() ? fmt(ansiPitchP(sel.value)) : sel.value;
+    }
+    syncBenchFallback(el("stdSel").value);   // 下拉选定 m：非法 A/d_B 立即回落 + 提示
+    onInput();
+  });
+
+  // 压力角下拉：第一项「自定义」，其余常用档（14.5/15/17.5/20/22.5/25）
+  const aSel = el("alphaSel");
+  aSel.innerHTML = "";
+  const aCustom = document.createElement("option");
+  aCustom.value = "custom";
+  aCustom.textContent = "自定义";
+  aSel.appendChild(aCustom);
+  ALPHAS.forEach((v) => {
+    const o = document.createElement("option");
+    o.value = String(v);
+    o.textContent = String(v) + "°";
+    aSel.appendChild(o);
+  });
+  aSel.addEventListener("change", () => {
+    if (aSel.value !== "custom") {
+      el("alpha").value = aSel.value;   // 选下拉 → 填数字框，并记为用户手动值
+      alphaTouched = true;
+    }
+    onInput();
+  });
+
+  // 所有数值框：input 防抖、blur/Enter 立即刷新（hf/rho/cf 是花键系数）
+  ["m", "z", "alpha", "ha", "c", "betaD", "betaM", "betaS", "h", "x", "hf", "rho", "cf", "db"].forEach((id) => {
+    const n = el(id);
+    if (id === "h") {
+      // 只要用户动过 h 就标记：之后切种类/改 m 不再自动覆盖
+      const markTouched = () => { hTouched = true; };
+      n.addEventListener("input", markTouched);
+      n.addEventListener("change", markTouched);
+    }
+    if (id === "alpha") {
+      // 只要用户动过 α 就标记：之后切种类/改 m 不再自动回 20°（照 hTouched 口径）
+      const markAlpha = () => { alphaTouched = true; };
+      n.addEventListener("input", markAlpha);
+      n.addEventListener("change", markAlpha);
+    }
+    if (id === "db") {
+      // 选了 d_B（DIN）/ A（NF）→ 唯一 m 时自动带出；z 随后由 (d_B/A, m) 联动回填。
+      // 先于 onInput 注册，保证 onInput 里 syncLockedZ 看到的是带出后的 m；
+      // 用户一改直径就清回落提示（重新按候选说明）。
+      n.addEventListener("input", () => { benchFallbackMsg = ""; });
+      n.addEventListener("change", () => { benchFallbackMsg = ""; });
+      n.addEventListener("input", fillBench);
+      n.addEventListener("change", fillBench);
+    }
+    if (id === "m") {
+      // m 提交（blur/Enter/下拉）→ 当前 A/d_B 不在该 m 的表内候选里就回落 + 可见提示；
+      // input 只重列候选，不打断用户输入 m 的过程。
+      n.addEventListener("change", () => syncBenchFallback(el("stdSel").value));
+    }
+    n.addEventListener("input", onInput);
+    n.addEventListener("change", onInput);
+    n.addEventListener("blur", onCommit);
+    n.addEventListener("keydown", (e) => { if (e.key === "Enter") onCommit(); });
+  });
+
+  el("out").addEventListener("click", exportToDrawing);
+  el("exprCopy").addEventListener("click", copyExpr);
+  // 齿轮体系（M/DP）：切体系 → 显隐 m/dp、重算倒角与默认 h、立即刷新
+  el("sysSel").addEventListener("change", () => {
+    syncSplineUI();
+    syncModuleSelect();
+    syncChamfer();
+    syncDefaultH(false);
+    syncKindHint();   // 表达式/命令行提示跟随体系（M/DP）
+    validateUI();
+    onCommit();
+  });
+
+  // 模式复选框：进/出花键模式（重建种类文案/视图按钮/显隐与预设）
+  el("splineMode").addEventListener("change", () => {
+    syncBenchFallback(el("stdSel").value);   // 进/出花键：按新体系检查 A/d_B 合法性
+    syncSplineUI();
+    syncProfileSelect();
+    if (isSpline()) applySplinePreset();
+    syncModuleSelect();   // 花键模式 + ANSI → 17 项 A/B 下拉
+    if (!viewAvailable(curView, curKind)) curView = "section";
+    syncDefaultH(false);
+    syncAlphaHint();
+    applyKindUI();
+    validateUI();
+    onCommit();
+  });
+  // 花键标准/齿廓下拉：换标准重建齿廓；换齿廓带出预设系数
+  el("stdSel").addEventListener("change", () => {
+    syncBenchFallback(el("stdSel").value);   // 切体系：d_B/A 换表，非法值回落 + 提示
+    syncSplineUI();
+    syncProfileSelect();
+    if (isSpline()) applySplinePreset();
+    syncModuleSelect();   // 切 ANSI → 17 项 A/B 下拉；切回 GB/DIN/NF → 模数系列
+    syncKindHint();   // 表达式/命令行提示跟随标准号
+    onCommit();
+  });
+  el("profileSel").addEventListener("change", () => {
+    if (isSpline()) applySplinePreset();
+    syncModuleSelect();   // ANSI：换齿廓列 → 重建该列的径节候选（过滤）与范围提示
+    syncKindHint();   // 表达式/命令行提示跟随齿廓代号（GB30R/DIN30/NFP/ANSI30P…）
+    onCommit();
+  });
+
+  buildKinds();
+  syncModuleSelect();
+  syncChamfer();
+  syncDefaultH(false);
+  syncAlphaSelect();
+  syncDefaultAlpha(false);
+  syncSplineUI();
+  await loadInvolCatalog();
+  syncModuleSelect();   // 目录到货后按体系重建模数/径节候选
+  syncLockedZ();        // DIN/NF：用目录表联动回填只读 z
+  applyKindUI();
+  syncAlphaHint();
+  validateUI();
+  fetchPreview();
+  fetchInfo();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.bom.h1}}</title>
+<style>
+  :root { --accent: #2b6fe0; --line: #ddd; --text: #222; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; color: var(--text);
+         background: #f5f6f8; padding: 14px; min-width: 860px; }
+  h1 { font-size: 16px; margin-bottom: 10px; }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .lbl { font-size: 12px; color: #666; }
+  button { padding: 5px 14px; border: 1px solid #bbb; border-radius: 6px; background: #fff;
+           cursor: pointer; font-size: 13px; }
+  button:hover { border-color: var(--accent); background: #eef4ff; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #1f5cc4; }
+  button:disabled { opacity: .5; cursor: default; }
+  #meta { font-size: 12px; color: #666; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 3px 4px; text-align: center; }
+  th { background: #f0f3f8; font-weight: 600; font-size: 12px; white-space: nowrap; }
+  td input { width: 100%; border: none; background: transparent; font-size: 13px;
+             text-align: center; font-family: inherit; color: inherit; }
+  td input:focus { outline: 2px solid var(--accent); background: #fff; border-radius: 3px; }
+  td input.num { text-align: center; }
+  td.col-no { width: 52px; } td.col-code { min-width: 130px; } td.col-name { min-width: 180px; }
+  td.col-qty { width: 56px; } td.col-mat { width: 90px; } td.col-w { width: 72px; }
+  td.col-rem { min-width: 90px; } td.col-lock { width: 40px; } td.col-del { width: 34px; }
+  tr.locked td { background: #fff8e6; }
+  .del { border: none; background: none; color: #c00; cursor: pointer; font-size: 14px; }
+  #note { font-size: 12px; margin-top: 8px; min-height: 16px; }
+  #note.info { color: #1f5cc4; } #note.warn { color: #b60; } #note.err { color: #c00; }
+  .hint { font-size: 11px; color: #888; margin-top: 4px; }
+  #fpbox { display: none; }
+</style>
+</head>
+<body>
+  <h1>{{i18n:gui.bom.h1}}</h1>
+  <div class="panel">
+    <div class="row" style="margin-bottom:8px">
+      <span id="doc-meta" class="lbl"></span>
+      <span style="flex:1"></span>
+      <button id="btn-reload" title="重新从图纸读取">{{i18n:gui.bom.reload}}</button>
+      <button id="btn-export-x">{{i18n:gui.bom.export_x}}</button>
+      <button id="btn-export-c">{{i18n:gui.bom.export_c}}</button>
+      <button id="btn-import" title="读外部 xlsx / csv 回灌（非空覆盖 · 空白保留 · 手改数量自动上锁）">{{i18n:gui.bom.import}}</button>
+      <input type="file" id="file-in" accept=".xlsx,.csv" style="display:none">
+      <button id="btn-add" title="手加件：不依赖零件台账，直接加一行">{{i18n:gui.bom.add}}</button>
+      <button id="btn-apply" class="primary" title="整表一次重建（一次 Ctrl+Z 可整体撤销）">{{i18n:gui.bom.apply}}</button>
+    </div>
+    <div class="row" style="margin-bottom:6px">
+      <label style="font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer">
+        <input type="checkbox" id="opt-cascade" checked>改序号撞号时后续自动顺延（球标跟着重编）
+      </label>
+      <span class="lbl" id="lock-count"></span>
+    </div>
+    <table>
+      <thead><tr>
+        <th class="col-no">序号</th><th class="col-code">图号</th><th class="col-name">名称</th>
+        <th class="col-qty">数量</th><th class="col-mat">材料</th><th class="col-w">单重</th>
+        <th class="col-w">总重</th><th class="col-remark">备注</th>
+        <th class="col-lock" title="数量锁：同步/导入不再重算该行数量（OCSM_BOMLOCK）">锁</th>
+        <th class="col-del"></th>
+      </th></tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+    <div id="note"></div>
+    <div class="hint">图纸 = 唯一真源；xlsx/csv 只是导入导出的交换格式。总重 = 单重 × 数量（自动算）。
+    改了数量建议顺手把「锁」勾上，否则球标联动/BOM 重算会按图中件数覆盖。Ctrl+点击图纸里的表头/行块即可回到本页。</div>
+  </div>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const COLS = ['item_no', 'code', 'name', 'qty', 'material', 'unit_weight', 'total_weight', 'remark'];
+  const state = { fp: '', doc: {}, xlsxName: '明细表.xlsx', rows: [], busy: false };
+  // 本窗口钉在哪张图纸上（`BOMEDIT` 开窗时写在 URL 上）——请求带回给插件，
+  // 多张图各开编辑窗不串表；不带（Ctrl+点击链接、AI/MCP 直连）则按“当前活跃图纸”算。
+  const TAB = new URLSearchParams(location.search).get('tab');
+  const withTab = (url) => (TAB ? url + (url.includes('?') ? '&' : '?') + 'tab=' + encodeURIComponent(TAB) : url);
+
+  function note(msg, cls) {
+    const n = $('note');
+    n.textContent = msg || '';
+    n.className = cls || '';
+  }
+  function setBusy(b) {
+    state.busy = b;
+    for (const id of ['btn-apply', 'btn-add', 'btn-reload', 'btn-export-x', 'btn-export-c', 'btn-import']) {
+      $(id).disabled = b;
+    }
+  }
+
+  // ── 序号工具（与球标同规则：前缀与位宽保留，A09→A10）─────────────────
+  function bumpNo(no) {
+    const m = /^(\D*?)(\d+)$/.exec(no.trim());
+    if (!m) return null; // 非数字结尾的序号不参与顺延
+    const width = m[2].length;
+    const next = String(Number(m[2]) + 1);
+    return m[1] + (next.length < width ? next.padStart(width, '0') : next);
+  }
+
+  function recompute(row) {
+    const w = parseFloat(row.unit_weight);
+    row.total_weight = (Number.isFinite(w) && w > 0)
+      ? String(Math.round(w * Math.max(1, parseInt(row.qty, 10) || 1) * 1000) / 1000)
+      : row.total_weight;
+  }
+
+  // 改序号撞号 → 撞到的行顺延 +1（链式，上限 200 次防死循环）
+  function cascade(from) {
+    if (!$('opt-cascade').checked) return;
+    for (let guard = 0; guard < 200; guard++) {
+      const hit = state.rows.find((r, i) => i !== from && r.item_no === state.rows[from].item_no);
+      if (!hit) return;
+      const bumped = bumpNo(hit.item_no);
+      if (!bumped) return; // 撞的是非数字序号 → 不顺延，交服务端报重复
+      hit.item_no = bumped;
+    }
+  }
+
+  function render() {
+    const tb = $('tb');
+    tb.textContent = '';
+    state.rows.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      if (r.lock != null) tr.className = 'locked';
+      COLS.forEach((k, ci) => {
+        const td = document.createElement('td');
+        td.className = ['col-no', 'col-code', 'col-name', 'col-qty', 'col-mat', 'col-w', 'col-w', 'col-remark'][ci];
+        const inp = document.createElement('input');
+        inp.value = r[k] == null ? '' : String(r[k]);
+        if (k === 'qty' || k === 'item_no') inp.className = 'num';
+        inp.addEventListener('input', () => {
+          r[k] = inp.value;
+          if (k === 'qty' || k === 'unit_weight') { recompute(r); }
+          if (k === 'item_no') { cascade(i); render(); }
+        });
+        td.appendChild(inp);
+        tr.appendChild(td);
+      });
+      const tdl = document.createElement('td');
+      tdl.className = 'col-lock';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = r.lock != null;
+      cb.title = r.lock != null ? `数量锁定为 ${r.lock}` : '未锁定';
+      cb.addEventListener('change', () => {
+        r.lock = cb.checked ? (parseInt(r.qty, 10) || 1) : null;
+        render();
+      });
+      tdl.appendChild(cb);
+      tr.appendChild(tdl);
+      const tdd = document.createElement('td');
+      tdd.className = 'col-del';
+      const del = document.createElement('button');
+      del.textContent = '✕';
+      del.title = '删除该行（应用到图纸时物理删除；一次撤销内可回滚）';
+      del.addEventListener('click', () => { state.rows.splice(i, 1); render(); });
+      tdd.appendChild(del);
+      tr.appendChild(tdd);
+      tb.appendChild(tr);
+    });
+    const locked = state.rows.filter((r) => r.lock != null).length;
+    $('lock-count').textContent = state.rows.length
+      ? `${state.rows.length} 行 · ${locked} 行数量已锁` : '';
+    const d = state.doc || {};
+    $('doc-meta').textContent = d.name
+      ? `图纸：${d.name}${d.saved ? '' : '（未存盘——导出 xlsx 前建议先 Ctrl+S，临时目录文件会被系统清理）'}`
+      : '图纸：当前活动图纸（未存盘）';
+  }
+
+  function applyState(j) {
+    state.fp = j.fp || '';
+    state.doc = j.doc || {};
+    state.xlsxName = j.xlsx_name || '明细表.xlsx';
+    state.rows = (j.rows || []).map((r) => ({
+      item_no: String(r.item_no ?? ''), code: String(r.code ?? ''), name: String(r.name ?? ''),
+      qty: String(r.qty ?? '1'), material: String(r.material ?? ''),
+      unit_weight: String(r.unit_weight ?? ''), total_weight: String(r.total_weight ?? ''),
+      remark: String(r.remark ?? ''), lock: r.lock == null ? null : Number(r.lock),
+      exported: r.exported == null ? null : Number(r.exported),
+    }));
+    render();
+  }
+
+  async function reload() {
+    setBusy(true); note('读取中…', 'info');
+    try {
+      const r = await fetch(withTab('/api/bom_get'));
+      const j = await r.json();
+      if (!j.ok) { note('读取失败：' + (j.error || r.status), 'err'); return; }
+      applyState(j);
+      note(j.untracked > 0
+        ? `注意：图上有 ${j.untracked} 个 OCSM_ 零件块没有台账（多为离线生成的文件），它们不在本表里；可用「导入」补录。`
+        : '', j.untracked > 0 ? 'warn' : '');
+    } catch (e) {
+      note('读取失败：' + e, 'err');
+    } finally { setBusy(false); }
+  }
+
+  function validate() {
+    const seen = new Set();
+    for (const [i, r] of state.rows.entries()) {
+      if (!r.item_no.trim()) return `第 ${i + 1} 行序号为空`;
+      if (seen.has(r.item_no)) return `序号重复：「${r.item_no}」（勾选冲突顺延可自动处理）`;
+      seen.add(r.item_no);
+      const q = parseInt(r.qty, 10);
+      if (!Number.isInteger(q) || q <= 0) return `序号 ${r.item_no} 的数量「${r.qty}」不是正整数`;
+    }
+    return null;
+  }
+
+  async function apply() {
+    const err = validate();
+    if (err) { note(err, 'err'); return; }
+    setBusy(true); note('应用中…', 'info');
+    try {
+      const r = await fetch('/api/bom_apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fp: state.fp,
+          tab: TAB || undefined,
+          rows: state.rows.map((x) => ({
+            item_no: x.item_no.trim(), code: x.code.trim(), name: x.name.trim(),
+            qty: parseInt(x.qty, 10), material: x.material.trim(),
+            unit_weight: x.unit_weight.trim(), total_weight: x.total_weight.trim(),
+            remark: x.remark.trim(), lock: x.lock,
+          })),
+        }),
+      });
+      const j = await r.json();
+      if (r.status === 409 && j.conflict) {
+        if (j.state) applyState(j.state);
+        note('图纸已被其它途径修改（如球标联动），已回传最新状态 —— 请核对后再点「应用到图纸」。', 'warn');
+        return;
+      }
+      if (!j.ok) { note('应用失败：' + (j.error || r.status), 'err'); return; }
+      if (j.state) applyState(j);
+      const rep = j.report || {};
+      const parts = [`已重建 ${rep.rows} 行 / ${rep.cols ? rep.cols.length : '?'} 列（旧表元 ${rep.replaced} 个已替换，Ctrl+Z 可撤销）`];
+      if (rep.squeezed > 0) parts.push(`自动压缩 ${rep.squeezed} 格`);
+      if (rep.balls_renumbered && rep.balls_renumbered.length) parts.push(`球标重编 ${rep.balls_renumbered.length} 组`);
+      if (rep.warn) parts.push(rep.warn);
+      note(parts.join('；'), rep.warn ? 'warn' : 'info');
+    } catch (e) {
+      note('应用失败：' + e, 'err');
+    } finally { setBusy(false); }
+  }
+
+  function downloadBytes(filename, mime, bytes) {
+    const blob = new Blob([new Uint8Array(bytes)], { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  async function exportAs(fmt) {
+    setBusy(true);
+    try {
+      const name = fmt === 'csv'
+        ? state.xlsxName.replace(/\.xlsx$/i, '.csv')
+        : state.xlsxName;
+      const r = await fetch(withTab(`/api/bom_export?fmt=${fmt}&name=${encodeURIComponent(name)}`), { method: 'POST' });
+      const j = await r.json();
+      if (!j.ok) { note('导出失败：' + (j.error || r.status), 'err'); return; }
+      downloadBytes(j.filename, j.mime, j.data);
+      note(`已导出 ${j.rows} 行（导出基线已记下 ${j.stamped} 行 —— 之后导入可自动判「手改即锁」）${state.doc.saved ? '' : '；注意本图未存盘，建议先 Ctrl+S'}`, 'info');
+    } catch (e) {
+      note('导出失败：' + e, 'err');
+    } finally { setBusy(false); }
+  }
+
+  async function importFile(file) {
+    setBusy(true); note(`导入 ${file.name} …`, 'info');
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const r = await fetch(withTab(`/api/bom_import?name=${encodeURIComponent(file.name)}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: buf,
+      });
+      const j = await r.json();
+      if (!j.ok) { note('导入失败：' + (j.error || r.status), 'err'); return; }
+      if (j.state) applyState(j);
+      const rep = j.report || {};
+      note(`导入 ${rep.imported} 行 → 表 ${rep.rows} 行 / ${rep.cols ? rep.cols.length : '?'} 列（${rep.locked} 行手改即锁，${rep.kept} 行文件里没有、按图纸保留）`, 'info');
+    } catch (e) {
+      note('导入失败：' + e, 'err');
+    } finally { setBusy(false); }
+  }
+
+  function addRow() {
+    let max = 0;
+    for (const r of state.rows) {
+      const m = /^(\d+)$/.exec(r.item_no.trim());
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    state.rows.push({
+      item_no: String(max + 1), code: '', name: '手加件', qty: '1',
+      material: '', unit_weight: '', total_weight: '', remark: '手加件',
+      lock: null, exported: null,
+    });
+    render();
+  }
+
+  $('btn-reload').addEventListener('click', reload);
+  $('btn-apply').addEventListener('click', apply);
+  // 别再写成 `add`（未定义）—— 开局抛 ReferenceError 会让后面的 reload() 不执行，
+  // 现象就是「页面打开是空的，手动点一下刷新才出来」（2026-09-16 用户报的）。
+  $('btn-add').addEventListener('click', addRow);
+  $('btn-export-x').addEventListener('click', () => exportAs('xlsx'));
+  $('btn-export-c').addEventListener('click', () => exportAs('csv'));
+  $('btn-import').addEventListener('click', () => $('file-in').click());
+  $('file-in').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) importFile(f);
+  });
+
+  // 页面存活心跳（与其它插件页一致；避免宿主重复开窗的判断依据）。
+  setInterval(() => { fetch('/api/page_ping?p=bom').catch(() => {}); }, 5000);
+
+  reload();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# GB/T 3478.1-2008 齿侧配合类别（基孔制：内花键 H，外花键基本偏差 d/e/f/h/js/k）
+# source: 嘉立创FA机械设计手册 5-3-53 jlc_5-3-53_齿侧配合.txt + GB/T 3478.1 §8.7.2/表 23
+# 配合类别 = H/<外花键基本偏差>；45° 压力角优先 H/k、H/h、H/f（其余 30°/37.5° 可用）
+fit,ext_dev,preferred_45,memo
+H/k,k,true,过盈（k 为 +(T+λ)）
+H/js,js,false,过渡（js 为 +(T+λ)/2）
+H/h,h,true,间隙 0（h=0）
+H/f,f,true,小间隙（f 表值）
+H/e,e,false,中间隙（e 表值）
+H/d,d,false,大间隙（d 表值）

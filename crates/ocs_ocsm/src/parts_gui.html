@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.parts.h1}}</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 14px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  .wrap { display: flex; gap: 12px; align-items: flex-start; }
+  .card { background: #fff; border: 1px solid #d9dee5; border-radius: 8px; padding: 12px 14px; }
+  .left { width: 340px; flex: none; max-height: 78vh; overflow: auto; }
+  .right { flex: 1; min-width: 340px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: #555; }
+  label { display: block; font-size: 12px; color: #666; margin: 8px 0 2px; }
+  select, input[type="number"] { width: 100%; padding: 5px 6px; border: 1px solid #c6ccd4;
+           border-radius: 4px; font-size: 13px; box-sizing: border-box; background: #fff; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .opt { padding: 5px 10px; border: 1px solid #c6ccd4; border-radius: 5px;
+         background: #fafbfc; cursor: pointer; font-size: 13px; user-select: none; }
+  .opt.on { background: #1e6fff; border-color: #1e6fff; color: #fff; }
+  .btn { border: none; border-radius: 6px; padding: 9px 18px; font-size: 14px; cursor: pointer;
+         background: #1e6fff; color: #fff; margin-top: 12px; }
+  .btn[disabled] { background: #9db9e8; cursor: not-allowed; }
+  .btn.ghost { background: #e4e7ec; color: #333; }
+  .hint { font-size: 12px; color: #888; margin-top: 8px; line-height: 1.5; }
+  #status { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .ok { color: #1a7f37; } .bad { color: #d1242f; }
+  #preview { width: 100%; max-height: 56vh; object-fit: contain;
+             border: 1px solid #e2e6ea; border-radius: 6px; background: #fff; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; }
+  /* ── 文件树 ── */
+  ul.tree, ul.tree ul { list-style: none; margin: 0; padding-left: 14px; }
+  ul.tree { padding-left: 0; }
+  .node { display: flex; align-items: center; gap: 4px; padding: 3px 4px; border-radius: 4px;
+          cursor: pointer; font-size: 13px; line-height: 1.35; }
+  .node:hover { background: #eef3fb; }
+  .node.sel { background: #1e6fff; color: #fff; }
+  .node.dim { color: #b0b6bd; cursor: not-allowed; }
+  .node.dim:hover { background: transparent; }
+  .tw { width: 12px; display: inline-block; color: #888; font-size: 11px; }
+  .node.sel .tw { color: #fff; }
+  .tag { font-size: 11px; color: #99a; margin-left: 4px; }
+  .node.sel .tag { color: #dce8ff; }
+  li.collapsed > ul { display: none; }
+</style>
+</head>
+<body>
+<h1>{{i18n:gui.parts.h1}}<span id="code" class="hint"></span></h1>
+
+<div class="wrap">
+  <div class="card left">
+    <h2>{{i18n:gui.parts.tree}}</h2>
+    <ul class="tree" id="tree"></ul>
+    <div class="hint">{{i18n:gui.parts.tree_note}}</div>
+  </div>
+
+  <div class="card right">
+    <h2>{{i18n:gui.parts.spec_view}}</h2>
+    <div id="panel" style="display:none">
+      <div id="stdFields">
+        <!-- 型别下拉（平键 A/B/C）：按目录 `type_group` 渲染；切型别 = 切族（同一尺寸表、不同端型画法）。 -->
+        <div id="typeFields" style="display:none">
+          <label for="typeSel">{{i18n:gui.parts.type}}</label>
+          <select id="typeSel"></select>
+        </div>
+        <label for="dia">{{i18n:gui.parts.dia}}</label>
+        <select id="dia"></select>
+        <label for="len" id="lenLabel">{{i18n:gui.parts.len}}</label>
+        <select id="len"></select>
+      </div>
+      <div id="detailFields" style="display:none">
+        <!-- 规格代号族（矩形花键）：下拉选表内规格，或选「自定义」自由输入。 -->
+        <div id="specFields" style="display:none">
+          <label for="specSel" id="specLabel">{{i18n:gui.parts.spec_code}}</label>
+          <select id="specSel"></select>
+          <input id="specText" type="text" placeholder="{{i18n:gui.parts.spec_custom_ph}}" style="display:none" />
+        </div>
+        <div id="dFields">
+          <label for="dnum" id="dLabel">{{i18n:gui.parts.d}}</label>
+          <input id="dnum" type="number" step="0.1" min="0.01" value="100" />
+        </div>
+        <div id="b1Fields">
+          <label for="b1num" id="b1Label">{{i18n:gui.parts.b1}}</label>
+          <input id="b1num" type="number" step="0.1" min="0.01" placeholder="{{i18n:gui.parts.req_blank}}" />
+        </div>
+        <!-- 通用自由参数面板：按目录族条目的 `inputs` 动态生成
+             （磨外圆没有 inputs → 走上面的 b1 老面板；退刀槽有 P/g1/g2/dg/r/alpha） -->
+        <div id="paramFields"></div>
+        <div class="hint" id="detailHint"></div>
+      </div>
+      <label>{{i18n:gui.parts.view}}</label>
+      <div class="row" id="viewRow"></div>
+      <button class="btn" id="out">{{i18n:gui.parts.export}}</button>
+      <div class="hint" id="steps"></div>
+      <div id="status"></div>
+      <img id="preview" alt="{{i18n:gui.parts.preview_alt}}" style="margin-top:10px" />
+      <div class="hint">
+        生成物：轮廓 → <code>1轮廓实线层</code>、牙底/细线 → <code>2细线层</code>、中心线 → <code>3中心线层</code>、
+        剖面线 → <code>5剖面线层</code>；颜色/线型/线宽一律 <b>ByLayer</b>；
+        <span id="baseHint">基点 = 头部支承面 × 轴线</span>；<b>不含尺寸标注</b>。
+      </div>
+    </div>
+    <div id="tip" class="hint">{{i18n:gui.parts.tip}}</div>
+  </div>
+</div>
+
+<script src="/ocsm_gui_common.js"></script>
+<script>
+let catalog = null, cur = { family: "", d: 0, l: 0, b1: null, params: {}, spec: "", view: "main" };
+const el = (id) => document.getElementById(id);
+// 族 id → 树节点（型别下拉切族时同步左侧高亮；不必依赖 CSS 选择器）。
+const treeRows = {};
+// 本窗口钉在哪张图纸上（插件开窗时写的 `tab=`）：出库/插入都带回给插件，
+// 多张图各开窗口时不串图；旧窗口（图纸已关）会被插件明确拒绝。
+const TAB = new URLSearchParams(location.search).get("tab");
+
+async function load() {
+  // 共享取数助手：目录拿不到不再静默（红框进 #status），页面其余部分照旧
+  const r = await fetchApi("/api/parts", { cache: "no-store" }, "/api/parts");
+  if (!r.ok) return;
+  catalog = r.data;
+  buildTree(el("tree"), catalog.tree, []);
+}
+
+function buildTree(ul, nodes, path) {
+  nodes.forEach((n) => {
+    const li = document.createElement("li");
+    const row = document.createElement("div");
+    row.className = "node";
+    const hasKids = n.children && n.children.length;
+    const extra = n.family ? "" : (hasKids ? "" : (n.implemented === false ? "{{i18njs:gui.parts.tag_pending}}" : ""));
+    row.innerHTML = '<span class="tw">' + (hasKids ? "▾" : "•") + "</span>" + n.name +
+                    (extra ? '<span class="tag">' + extra + "</span>" : "");
+    if (!hasKids && n.implemented === false) row.classList.add("dim");
+    li.appendChild(row);
+
+    if (hasKids) {
+      const sub = document.createElement("ul");
+      buildTree(sub, n.children, path.concat(n.name));
+      li.appendChild(sub);
+      row.addEventListener("click", () => {
+        li.classList.toggle("collapsed");
+        row.querySelector(".tw").textContent = li.classList.contains("collapsed") ? "▸" : "▾";
+      });
+    } else if (n.family && n.implemented !== false) {
+      treeRows[n.family] = row;
+      row.dataset.family = n.family;
+      row.addEventListener("click", () => {
+        pickFamily(n.family);
+      });
+      if (!cur.family) setTimeout(() => pickFamily(n.family, row), 0);
+    }
+    ul.appendChild(li);
+  });
+}
+
+function pickFamily(id, row) {
+  try {
+    // 树节点可由 family 反查（型别下拉换族时也把左侧树高亮跟着切）。
+    if (!row && treeRows[id]) row = treeRows[id];
+    Object.keys(treeRows).forEach((f) => treeRows[f].classList.remove("sel"));
+    if (row) row.classList.add("sel");
+    pickFamilyInner(id, row);
+  } catch (e) {
+    // 数据异常（例如某族的 views 为空）不再静默死面板，直接把原因写在状态行
+    el("status").textContent = "{{i18njs:gui.parts.err.family}}".replace("{err}", e);
+    el("status").className = "bad";
+  }
+}
+
+function pickFamilyInner(id, row) {
+  const f = catalog.families[id];
+  if (!f) return;
+  if (!f.views || !f.views.length) {
+    el("status").textContent = "{{i18njs:gui.parts.err.no_view}}";
+    el("status").className = "bad";
+    return;
+  }
+  el("status").textContent = "";
+  el("status").className = "";
+  cur.family = id;
+  cur.b1 = null;
+  cur.params = {};
+  cur.spec = "";
+  el("code").textContent = "　" + f.code + " ← " + f.iso;
+  el("panel").style.display = "";
+  el("tip").style.display = "none";
+  el("baseHint").textContent = f.base_hint || "{{i18njs:gui.parts.base_default}}";
+  // 型别下拉（目录 `type_group`；平键族有，其它族无 → 隐藏）。
+  const typeGroup = f.type_group || [];
+  el("typeFields").style.display = typeGroup.length ? "" : "none";
+  if (typeGroup.length) {
+    const tsel = el("typeSel");
+    tsel.innerHTML = "";
+    typeGroup.forEach((t) => {
+      const o = document.createElement("option");
+      o.value = t.id;
+      o.textContent = t.name;
+      tsel.appendChild(o);
+    });
+    tsel.value = id;
+  }
+  const detail = !!f.free_d;
+  el("stdFields").style.display = detail ? "none" : "";
+  el("detailFields").style.display = detail ? "" : "none";
+  const vrow = el("viewRow");
+  vrow.innerHTML = "";
+  f.views.forEach((v, i) => {
+    const b = document.createElement("button");
+    b.className = "opt" + (i === 0 ? " on" : "");
+    b.dataset.v = v.id;
+    b.textContent = v.name;
+    b.addEventListener("click", () => {
+      cur.view = v.id;
+      [...vrow.querySelectorAll("button")].forEach((x) => x.classList.toggle("on", x.dataset.v === v.id));
+      update();
+    });
+    vrow.appendChild(b);
+  });
+  cur.view = f.views[0].id;
+  if (detail) {
+    // 结构要素：自由输入 d（不是固定规格下拉）；参数面板由目录数据驱动
+    // （磨外圆只有 b1；退刀槽有 P/g1/g2/dg/r/alpha；花键有 规格代号 + L + de）。
+    const hasSpecs = !!(f.specs && f.specs.length);
+    el("specFields").style.display = hasSpecs ? "" : "none";
+    el("dFields").style.display = (hasSpecs || f.hide_d) ? "none" : "";
+    el("dLabel").textContent = f.d_label || "{{i18njs:gui.parts.d}}";
+    el("dnum").value = f.default_d || 100;
+    el("b1num").value = "";
+    renderDetailInputs(f);
+    if (hasSpecs) renderSpecFields(f);
+    onDetail();
+    return;
+  }
+  el("lenLabel").textContent = (f.len_label || "{{i18njs:gui.parts.len_default}}") + "{{i18njs:gui.parts.len_suffix}}";
+  const dia = el("dia");
+  dia.innerHTML = "";
+  f.sizes.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s.d;
+    o.textContent = s.label + "（P" + s.pitch + "）";
+    dia.appendChild(o);
+  });
+  dia.value = f.sizes[0].d;
+  onDia(f.sizes[0]);
+}
+
+// 结构要素：参数面板按目录 `inputs` 动态生成（只建 DOM，值与错误处理在 onDetail）。
+function renderDetailInputs(f) {
+  const inputs = f.inputs || [];
+  el("b1Fields").style.display = inputs.length ? "none" : "";
+  const box = el("paramFields");
+  box.innerHTML = "";
+  inputs.forEach((it) => {
+    const lab = document.createElement("label");
+    lab.htmlFor = "p_" + it.key;
+    lab.textContent = it.label || it.key;
+    box.appendChild(lab);
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.step = "0.01";
+    inp.min = "0";
+    inp.id = "p_" + it.key;
+    inp.dataset.key = it.key;
+    inp.placeholder = it.placeholder || (it.required ? "{{i18njs:gui.parts.req_yes}}" : "{{i18njs:gui.parts.req_blank}}");
+    inp.addEventListener("input", onDetail);
+    box.appendChild(inp);
+  });
+}
+
+// 收集动态参数（留空跳过；必给项缺失/非数字 → 直接在提示行报错并清掉预览）。
+function collectParams(f, hint) {
+  const params = {};
+  let missing = null;
+  for (const it of f.inputs || []) {
+    const inp = el("p_" + it.key);
+    const raw = inp ? inp.value.trim() : "";
+    if (raw === "") {
+      if (it.required && missing === null) missing = it.key;
+      continue;
+    }
+    const v = Number(raw);
+    if (!isFinite(v)) {
+      hint.textContent = "{{i18njs:gui.parts.err.not_number}}".replace("{label}", it.label || it.key);
+      el("preview").removeAttribute("src");
+      return null;
+    }
+    params[it.key] = v;
+  }
+  if (missing !== null) {
+    hint.textContent = "{{i18njs:gui.parts.err.missing_param}}".replace("{name}", missing);
+    el("preview").removeAttribute("src");
+    return null;
+  }
+  return params;
+}
+
+// 规格代号族（花键）：下拉列目录 `specs`，最后一项 = 自定义输入。
+function renderSpecFields(f) {
+  const sel = el("specSel");
+  sel.innerHTML = "";
+  f.specs.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s.code;
+    o.textContent = s.code + "（" + s.series + "系列，de" + s.de + "）";
+    sel.appendChild(o);
+  });
+  const custom = document.createElement("option");
+  custom.value = "__custom__";
+  custom.textContent = "{{i18njs:gui.parts.custom_spec}}";
+  sel.appendChild(custom);
+  sel.value = f.specs[0].code;
+  el("specText").style.display = "none";
+  el("specText").value = "";
+}
+
+// 规格代号 → 小径 d（`6x23x26x6` 的第 2 个数；解析不了 = 0，由服务端报错）。
+function specMinorD(code) {
+  const parts = String(code).trim().split(/[xX×*＊\s]+/).filter((s) => s !== "");
+  if (parts.length !== 4) return 0;
+  const d = Number(parts[1]);
+  return isFinite(d) && d > 0 ? d : 0;
+}
+
+// 当前规格代号（下拉或自定义输入框）；统一成 `x` 写法（×/* 都收）。
+function currentSpecCode() {
+  const sel = el("specSel");
+  if (!sel || sel.style.display === "none") return "";
+  const raw = sel.value === "__custom__" ? el("specText").value : sel.value;
+  return String(raw).trim().replace(/[×＊*]/g, "x").replace(/\s+/g, "");
+}
+
+// 结构要素：d 自由输入；有 `inputs` 的族走通用参数，否则是老 b1 面板。
+// 有 `specs` 的族（矩形花键）：d 由规格代号派生，规格代号随请求发给服务端。
+function onDetail() {
+  const f = catalog.families[cur.family];
+  const hint = el("detailHint");
+  const hasSpecs = !!(f.specs && f.specs.length);
+  if (hasSpecs) {
+    cur.spec = currentSpecCode();
+    cur.d = specMinorD(cur.spec);
+    if (!cur.spec || cur.d <= 0) {
+      cur.params = {};
+      hint.textContent = "{{i18njs:gui.parts.err.spec_form}}";
+      el("preview").removeAttribute("src");
+      return;
+    }
+    const hit = (f.specs || []).find((s) => s.code === cur.spec);
+    const params = collectParams(f, hint);
+    if (params === null) { cur.params = {}; return; }
+    cur.params = params;
+    hint.textContent = (hit ? "{{i18njs:gui.parts.hint.in_table}}" : "{{i18njs:gui.parts.hint.off_table}}")
+        + "：d=" + cur.d + "、D=" + (hit ? hit.D : "?") + "、B=" + (hit ? hit.B : "?")
+        + (hit ? "、de=" + hit.de : "")
+        + "{{i18njs:gui.parts.hint.spec_tail}}";
+    update();
+    return;
+  }
+  const d = Number(el("dnum").value);
+  cur.d = d;
+  if (!isFinite(d) || d <= 0) {
+    cur.b1 = null;
+    cur.params = {};
+    hint.textContent = "{{i18njs:gui.parts.err.d_positive}}";
+    el("preview").removeAttribute("src");
+    return;
+  }
+  if (f.inputs && f.inputs.length) {
+    cur.b1 = null;
+    const params = collectParams(f, hint);
+    if (params === null) { cur.params = {}; return; }
+    cur.params = params;
+    const choices = (f.pitches || []).map((r) => r.P).join("、");
+    const row = (f.pitches || []).find((r) => Number(r.P) === Number(params.P));
+    hint.textContent = row
+        ? "{{i18njs:gui.parts.hint.p_ok}}".replace("{p}", row.P).replace("{g1}", row.g1)
+            .replace("{g2}", row.g2).replace("{red}", row.dg_reduction).replace("{r}", row.r)
+            .replace("{choices}", choices)
+        : "{{i18njs:gui.parts.err.p_choice}}".replace("{choices}", choices);
+    update();
+    return;
+  }
+  const raw = el("b1num").value.trim();
+  cur.b1 = raw === "" ? null : Number(raw);
+  cur.params = {};
+  const band = (f.bands || []).find((b) => {
+    const loOk = b.lo_incl ? d >= b.lo : d > b.lo;
+    const hiOk = b.hi == null ? true : (b.hi_incl ? d <= b.hi : d < b.hi);
+    return loOk && hiOk;
+  });
+  if (!band) {
+    hint.textContent = "{{i18njs:gui.parts.err.d_range}}";
+    el("preview").removeAttribute("src");
+    return;
+  }
+  const rows = band.rows || [];
+  const def = rows.length ? rows[rows.length - 1].b1 : "?";
+  const choices = rows.map((r) => r.b1).join("、");
+  hint.textContent = "{{i18njs:gui.parts.hint.d_band}}"
+      .replace("{band}", band.label).replace("{def}", def).replace("{choices}", choices);
+  update();
+}
+
+function onDia(size) {
+  cur.d = Number(size.d);
+  const len = el("len");
+  len.innerHTML = "";
+  size.lengths.forEach((L) => {
+    const o = document.createElement("option");
+    o.value = L;
+    o.textContent = L + " mm";
+    len.appendChild(o);
+  });
+  len.value = size.lengths[0];
+  cur.l = Number(size.lengths[0]);
+  const lab = catalog.families[cur.family].len_label || "{{i18njs:gui.parts.len_default}}";
+  el("steps").textContent = size.lengths.length > 1
+      ? "{{i18njs:gui.parts.hint.len_values}}".replace("{label}", lab).replace("{choices}", size.lengths.join("、"))
+      : "{{i18njs:gui.parts.hint.len_single}}".replace("{label}", lab).replace("{len}", size.lengths[0]);
+  update();
+}
+
+function update() {
+  const f = catalog.families[cur.family];
+  if (f && f.free_d) {
+    // 结构要素没有 l；b1 / 通用 params / 规格代号（花键）都可能为空
+    let url = "/api/part_svg?family=" + cur.family + "&view=" + cur.view;
+    if (cur.spec) {
+      url += "&spec=" + encodeURIComponent(cur.spec);
+    } else {
+      url += "&d=" + cur.d;
+    }
+    if (cur.b1 !== null && cur.b1 !== undefined && cur.b1 !== "") url += "&b1=" + cur.b1;
+    Object.keys(cur.params || {}).forEach((k) => {
+      url += "&" + encodeURIComponent(k) + "=" + cur.params[k];
+    });
+    el("preview").src = url;
+  } else {
+    el("preview").src = "/api/part_svg?family=" + cur.family + "&d=" + cur.d + "&l=" + cur.l + "&view=" + cur.view;
+  }
+  el("status").textContent = "";
+}
+
+async function outOfStock() {
+  ocsmStatus("{{i18njs:gui.parts.status.exporting}}");
+  const r = await fetchApi("/api/part_export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(TAB ? Object.assign({ tab: TAB }, cur) : cur),
+  }, "/api/part_export");
+  if (!r.ok) return; // 后端 error 已由共享助手原样写进 #status（红框）
+  const msg = r.data.message || "{{i18njs:gui.parts.status.exported}}";
+  ocsmStatusOk(msg);
+  // 出库后自动关掉本窗口：chromium 的标签页/--app 窗口都允许脚本自关
+  //（"会话历史仅一条即可自关"规则，已实测）；若浏览器拒绝（如 Firefox 标签页），
+  // 下面的文案会提示手动切回图纸。
+  setTimeout(() => {
+    try { window.close(); } catch (e) { /* 被拒绝时忽略 */ }
+    ocsmStatusOk(msg + "{{i18njs:gui.parts.status.exported_tail}}");
+  }, 300);
+}
+
+// 心跳：告诉插件"零件库窗口还开着"（避免重复开窗）；关闭时 bye=1
+function ping(bye) {
+  try { fetch("/api/page_ping?p=parts" + (bye ? "&bye=1" : ""), { cache: "no-store" }); } catch (e) {}
+}
+
+(async function init() {
+  ping(false);
+  setInterval(() => ping(false), 5000);
+  window.addEventListener("beforeunload", () => ping(true));
+  await load();
+  el("dia").addEventListener("change", () => {
+    const f = catalog.families[cur.family];
+    onDia(f.sizes.find((s) => Number(s.d) === Number(el("dia").value)));
+  });
+  el("len").addEventListener("change", () => { cur.l = Number(el("len").value); update(); });
+  el("dnum").addEventListener("input", onDetail);
+  el("b1num").addEventListener("input", onDetail);
+  el("specSel").addEventListener("change", () => {
+    el("specText").style.display = el("specSel").value === "__custom__" ? "" : "none";
+    onDetail();
+  });
+  el("specText").addEventListener("input", onDetail);
+  el("typeSel").addEventListener("change", () => {
+    if (el("typeSel").value !== cur.family) pickFamily(el("typeSel").value);
+  });
+  el("out").addEventListener("click", outOfStock);
+})();
+</script>
+</body>
+</html>

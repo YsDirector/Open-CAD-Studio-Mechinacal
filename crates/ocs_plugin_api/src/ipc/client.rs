@@ -1,0 +1,917 @@
+//! Plugin-side IPC client and `HostApi` proxy.
+
+use std::any::Any;
+use std::cell::{Cell, OnceCell, RefCell};
+use std::collections::HashMap;
+use std::path::Path;
+use std::rc::Rc;
+
+use codec::xdata::ExtendedDataRecord;
+use codec::{CadDocument, EntityType, Handle};
+use interprocess::local_socket::traits::Stream as StreamTrait;
+use interprocess::local_socket::{GenericNamespaced, Stream, ToNsName};
+
+use crate::host::{DocumentReader, HostApi, HostSettingValue, InteractiveCommand, ReaderEntity};
+use crate::ipc::protocol::{
+    HostResponse, HostToPlugin, PluginRequest, PluginResponse, PluginToHost, RunnerHandshake,
+};
+use crate::ipc::transport::{recv, send};
+use crate::shm::{DocumentViewInfo, SharedDocumentReader, DocumentViewData};
+
+/// Shared registry of active interactive commands, keyed by host-assigned id.
+pub type InteractiveRegistry = Rc<RefCell<HashMap<u64, Box<dyn InteractiveCommand>>>>;
+
+/// Plugin-side connection to the host.
+#[derive(Clone)]
+pub struct IpcClient {
+    stream: Rc<RefCell<Stream>>,
+}
+
+impl IpcClient {
+    pub fn connect(name: &str) -> std::io::Result<Self> {
+        let name = name
+            .to_ns_name::<GenericNamespaced>()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        let stream = StreamTrait::connect(name)?;
+        Ok(Self::from_stream(stream))
+    }
+
+    pub(crate) fn from_stream(stream: Stream) -> Self {
+        Self {
+            stream: Rc::new(RefCell::new(stream)),
+        }
+    }
+
+    pub fn stream_ref(&self) -> std::cell::RefMut<'_, Stream> {
+        self.stream.borrow_mut()
+    }
+
+    /// Send the initial runner handshake presenting the pre-shared token.
+    pub fn send_handshake(&self, token: &str) -> Result<(), crate::ipc::transport::TransportError> {
+        send(
+            &mut self.stream.borrow_mut(),
+            &RunnerHandshake::Token(token.to_string()),
+        )
+    }
+
+    /// Send a plugin request and wait for the matching response. Any nested
+    /// host requests that arrive while we are waiting are treated as errors.
+    pub fn request(
+        &self,
+        req: PluginRequest,
+    ) -> Result<PluginResponse, crate::ipc::transport::TransportError> {
+        send(&mut self.stream.borrow_mut(), &PluginToHost::Request(Box::new(req)))?;
+        loop {
+            match recv::<HostToPlugin>(&mut self.stream.borrow_mut())? {
+                HostToPlugin::Response(resp) => return Ok(*resp),
+                HostToPlugin::Request(host_req) => {
+                    let resp = HostResponse::Error(format!(
+                        "unexpected nested host request: {host_req:?}"
+                    ));
+                    send(&mut self.stream.borrow_mut(), &PluginToHost::Response(resp))?;
+                }
+            }
+        }
+    }
+}
+
+/// `HostApi` implementation used inside the plugin process. Every host-mutating
+/// method is an RPC; `document()` / `document_mut()` return a local cached copy.
+pub struct PluginHostApi {
+    client: IpcClient,
+    tab_index: usize,
+    document_cache: OnceCell<CadDocument>,
+    interactive: InteractiveRegistry,
+    next_command_id: Cell<u64>,
+    /// Cache XDATA records so repeated reads for the same (handle, app) return
+    /// stable references without leaking on every call. Each distinct record is
+    /// leaked once per plugin dispatch/interactive session.
+    record_cache: RefCell<HashMap<(Handle, String), &'static ExtendedDataRecord>>,
+    /// Shared-memory document view information, lazily fetched on first
+    /// `document_reader()` access.
+    doc_view: RefCell<Option<DocumentViewInfo>>,
+}
+
+impl PluginHostApi {
+    pub fn new(client: IpcClient, tab_index: usize, interactive: InteractiveRegistry) -> Self {
+        Self {
+            client,
+            tab_index,
+            document_cache: OnceCell::new(),
+            interactive,
+            next_command_id: Cell::new(1),
+            record_cache: RefCell::new(HashMap::new()),
+            doc_view: RefCell::new(None),
+        }
+    }
+
+    fn fetch_document(&self) -> CadDocument {
+        match self.client.request(PluginRequest::DocumentSnapshot) {
+            Ok(PluginResponse::Document(doc)) => *doc,
+            Ok(other) => {
+                eprintln!("[plugin] unexpected DocumentSnapshot response: {other:?}");
+                CadDocument::default()
+            }
+            Err(e) => {
+                eprintln!("[plugin] failed to fetch document snapshot: {e}");
+                CadDocument::default()
+            }
+        }
+    }
+}
+
+impl HostApi for PluginHostApi {
+    fn tab_index(&self) -> usize {
+        self.tab_index
+    }
+
+    fn document(&self) -> &CadDocument {
+        self.document_cache.get_or_init(|| self.fetch_document())
+    }
+
+    fn document_mut(&mut self) -> &mut CadDocument {
+        if self.document_cache.get().is_none() {
+            let doc = self.fetch_document();
+            let _ = self.document_cache.set(doc);
+        }
+        self.document_cache.get_mut().expect("document initialized")
+    }
+
+    fn add_entity(&mut self, entity: EntityType) -> Handle {
+        match self.client.request(PluginRequest::AddEntity(entity)) {
+            Ok(PluginResponse::Handle(h)) => {
+                // The cached snapshot is now stale; drop it so a later
+                // document() re-fetches the host's post-edit truth.
+                self.document_cache = OnceCell::new();
+                h
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected AddEntity response: {other:?}");
+                Handle::default()
+            }
+            Err(e) => {
+                eprintln!("[plugin] AddEntity failed: {e}");
+                Handle::default()
+            }
+        }
+    }
+
+    fn add_entities(&mut self, entities: Vec<EntityType>) -> Vec<Handle> {
+        match self.client.request(PluginRequest::AddEntities(entities)) {
+            Ok(PluginResponse::Handles(handles)) => {
+                // The cached snapshot is now stale; drop it so a later
+                // document() re-fetches the host's post-edit truth.
+                self.document_cache = OnceCell::new();
+                handles
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected AddEntities response: {other:?}");
+                Vec::new()
+            }
+            Err(e) => {
+                eprintln!("[plugin] AddEntities failed: {e}");
+                Vec::new()
+            }
+        }
+    }
+
+    fn update_entity(&mut self, entity: EntityType) -> bool {
+        match self.client.request(PluginRequest::UpdateEntity(entity)) {
+            Ok(PluginResponse::Bool(b)) => {
+                if b {
+                    // The cached snapshot is now stale; drop it so a later
+                    // document() re-fetches the host's post-edit truth.
+                    self.document_cache = OnceCell::new();
+                }
+                b
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected UpdateEntity response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] UpdateEntity failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn remove_entity(&mut self, handle: Handle) -> bool {
+        match self.client.request(PluginRequest::RemoveEntity { handle }) {
+            Ok(PluginResponse::Bool(b)) => {
+                if b {
+                    self.document_cache = OnceCell::new();
+                }
+                b
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected RemoveEntity response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] RemoveEntity failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn bump_geometry(&mut self) {
+        let _ = self.client.request(PluginRequest::BumpGeometry);
+    }
+
+    fn read_record(&self, handle: Handle, app_name: &str) -> Option<&ExtendedDataRecord> {
+        let key = (handle, app_name.to_string());
+        {
+            let cache = self.record_cache.borrow();
+            if let Some(&r) = cache.get(&key) {
+                return Some(r);
+            }
+        }
+        match self.client.request(PluginRequest::ReadRecord {
+            handle,
+            app_name: app_name.to_string(),
+        }) {
+            Ok(PluginResponse::Record(rec)) => rec.map(|r| {
+                // Leak once per distinct (handle, app_name) and reuse the
+                // reference for the lifetime of this PluginHostApi.
+                let leaked: &'static ExtendedDataRecord = Box::leak(Box::new(r));
+                self.record_cache.borrow_mut().insert(key, leaked);
+                leaked
+            }),
+            Ok(other) => {
+                eprintln!("[plugin] unexpected ReadRecord response: {other:?}");
+                None
+            }
+            Err(e) => {
+                eprintln!("[plugin] ReadRecord failed: {e}");
+                None
+            }
+        }
+    }
+
+    fn write_record(&mut self, handle: Handle, record: ExtendedDataRecord) -> bool {
+        let app = record.application_name.clone();
+        match self
+            .client
+            .request(PluginRequest::WriteRecord { handle, record })
+        {
+            Ok(PluginResponse::Bool(b)) => {
+                if b {
+                    self.record_cache.borrow_mut().remove(&(handle, app));
+                }
+                b
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected WriteRecord response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] WriteRecord failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn remove_record(&mut self, handle: Handle, app_name: &str) -> bool {
+        match self.client.request(PluginRequest::RemoveRecord {
+            handle,
+            app_name: app_name.to_string(),
+        }) {
+            Ok(PluginResponse::Bool(b)) => {
+                if b {
+                    self.record_cache
+                        .borrow_mut()
+                        .remove(&(handle, app_name.to_string()));
+                }
+                b
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected RemoveRecord response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] RemoveRecord failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn push_undo(&mut self, label: &str) {
+        if let Err(e) = self.client.request(PluginRequest::PushUndo {
+            label: label.to_string(),
+        }) {
+            eprintln!("[plugin] push_undo failed: {e}");
+        }
+    }
+
+    fn begin_undo(&mut self, label: &str) {
+        if let Err(e) = self.client.request(PluginRequest::BeginUndo {
+            label: label.to_string(),
+        }) {
+            eprintln!("[plugin] begin_undo failed: {e}");
+        }
+    }
+
+    fn commit_undo(&mut self) {
+        if let Err(e) = self.client.request(PluginRequest::CommitUndo) {
+            eprintln!("[plugin] commit_undo failed: {e}");
+        }
+    }
+
+    fn set_dirty(&mut self) {
+        if let Err(e) = self.client.request(PluginRequest::SetDirty) {
+            eprintln!("[plugin] set_dirty failed: {e}");
+        }
+    }
+
+    fn push_info(&mut self, msg: &str) {
+        if let Err(e) = self
+            .client
+            .request(PluginRequest::PushInfo(msg.to_string()))
+        {
+            eprintln!("[plugin] push_info failed: {e}");
+        }
+    }
+
+    fn push_output(&mut self, msg: &str) {
+        if let Err(e) = self
+            .client
+            .request(PluginRequest::PushOutput(msg.to_string()))
+        {
+            eprintln!("[plugin] push_output failed: {e}");
+        }
+    }
+
+    fn push_error(&mut self, msg: &str) {
+        if let Err(e) = self
+            .client
+            .request(PluginRequest::PushError(msg.to_string()))
+        {
+            eprintln!("[plugin] push_error failed: {e}");
+        }
+    }
+
+    fn start_interactive(&mut self, command: Box<dyn InteractiveCommand>) {
+        let id = self.next_command_id.get();
+        self.next_command_id.set(id + 1);
+        self.interactive.borrow_mut().insert(id, command);
+        if let Err(e) = self
+            .client
+            .request(PluginRequest::StartInteractive { command_id: id })
+        {
+            eprintln!("[plugin] start_interactive failed: {e}");
+        }
+    }
+
+    fn plugin_state_any(&self, _plugin_id: &str) -> Option<&(dyn Any + Send + Sync)> {
+        // Per-tab plugin state stored in the host cannot cross the process
+        // boundary because `dyn Any` is not serializable. Plugins should keep
+        // their own state inside the plugin process.
+        None
+    }
+
+    fn plugin_state_any_mut(&mut self, _plugin_id: &str) -> Option<&mut (dyn Any + Send + Sync)> {
+        None
+    }
+
+    fn ensure_plugin_state_any(
+        &mut self,
+        _plugin_id: &'static str,
+        _init: &mut dyn FnMut() -> Box<dyn Any + Send + Sync>,
+    ) -> &mut (dyn Any + Send + Sync) {
+        // Same limitation as `plugin_state_any`. This would need a serializable
+        // state contract to work across processes.
+        panic!("ensure_plugin_state is not supported for out-of-process plugins; keep state in the plugin crate")
+    }
+
+    fn document_reader(&self) -> Box<dyn DocumentReader + '_> {
+        {
+            let mut view = self.doc_view.borrow_mut();
+            if view.is_none() {
+                match self.client.request(PluginRequest::OpenDocumentView) {
+                    Ok(PluginResponse::DocumentView { path, version }) => {
+                        *view = Some(DocumentViewInfo { path, version });
+                    }
+                    Ok(other) => {
+                        eprintln!("[plugin] unexpected OpenDocumentView response: {other:?}");
+                    }
+                    Err(e) => {
+                        eprintln!("[plugin] OpenDocumentView request failed: {e}");
+                    }
+                }
+            }
+        }
+        match self.doc_view.borrow().as_ref() {
+            Some(info) => match SharedDocumentReader::<DocumentViewData>::open(Path::new(&info.path)) {
+                Ok(reader) => Box::new(reader),
+                Err(e) => {
+                    eprintln!(
+                        "[plugin] failed to open document view at {}: {e}",
+                        info.path
+                    );
+                    Box::new(EmptyDocumentReader)
+                }
+            },
+            None => Box::new(EmptyDocumentReader),
+        }
+    }
+
+    // ── API v5 (OCSMechanical) ──────────────────────────────────────────────
+    fn selected_handles(&self) -> Vec<Handle> {
+        match self.client.request(PluginRequest::SelectedHandles) {
+            Ok(PluginResponse::Handles(handles)) => handles,
+            Ok(other) => {
+                eprintln!("[plugin] unexpected SelectedHandles response: {other:?}");
+                Vec::new()
+            }
+            Err(e) => {
+                eprintln!("[plugin] SelectedHandles failed: {e}");
+                Vec::new()
+            }
+        }
+    }
+
+    fn set_current_layer(&mut self, name: &str) -> bool {
+        match self.client.request(PluginRequest::SetCurrentLayer(name.to_string())) {
+            Ok(PluginResponse::Bool(b)) => b,
+            Ok(other) => {
+                eprintln!("[plugin] unexpected SetCurrentLayer response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] SetCurrentLayer failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn ensure_layers(&mut self, defs: Vec<crate::host::LayerDef>) -> usize {
+        match self.client.request(PluginRequest::EnsureLayers(defs)) {
+            Ok(PluginResponse::Count(n)) => {
+                if n > 0 {
+                    self.document_cache = OnceCell::new();
+                }
+                n
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected EnsureLayers response: {other:?}");
+                0
+            }
+            Err(e) => {
+                eprintln!("[plugin] EnsureLayers failed: {e}");
+                0
+            }
+        }
+    }
+
+    fn ensure_linetypes(&mut self, defs: Vec<crate::host::LinetypeDef>) -> usize {
+        match self.client.request(PluginRequest::EnsureLinetypes(defs)) {
+            Ok(PluginResponse::Count(n)) => {
+                if n > 0 {
+                    self.document_cache = OnceCell::new();
+                }
+                n
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected EnsureLinetypes response: {other:?}");
+                0
+            }
+            Err(e) => {
+                eprintln!("[plugin] EnsureLinetypes failed: {e}");
+                0
+            }
+        }
+    }
+
+    fn ensure_text_styles(&mut self, defs: Vec<crate::host::TextStyleDef>) -> usize {
+        match self.client.request(PluginRequest::EnsureTextStyles(defs)) {
+            Ok(PluginResponse::Count(n)) => {
+                if n > 0 {
+                    self.document_cache = OnceCell::new();
+                }
+                n
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected EnsureTextStyles response: {other:?}");
+                0
+            }
+            Err(e) => {
+                eprintln!("[plugin] EnsureTextStyles failed: {e}");
+                0
+            }
+        }
+    }
+
+    fn show_frame_picker(&mut self, frames: Vec<crate::host::FrameItem>) -> bool {
+        match self.client.request(PluginRequest::ShowFramePicker(frames)) {
+            Ok(PluginResponse::Bool(b)) => b,
+            Ok(other) => {
+                eprintln!("[plugin] unexpected ShowFramePicker response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] ShowFramePicker failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn take_pending_frame_selection(&mut self) -> Option<crate::host::FrameSelection> {
+        match self.client.request(PluginRequest::TakePendingFrameSelection) {
+            Ok(PluginResponse::FrameSelection(sel)) => sel,
+            Ok(other) => {
+                eprintln!("[plugin] unexpected TakePendingFrameSelection response: {other:?}");
+                None
+            }
+            Err(e) => {
+                eprintln!("[plugin] TakePendingFrameSelection failed: {e}");
+                None
+            }
+        }
+    }
+
+    fn document_path(&self, tab_id: u64) -> Option<std::path::PathBuf> {
+        match self.client.request(PluginRequest::DocumentPath { tab_id }) {
+            Ok(PluginResponse::DocumentPath(Some(path))) => Some(std::path::PathBuf::from(path)),
+            Ok(PluginResponse::DocumentPath(None)) => None,
+            Ok(other) => {
+                eprintln!("[plugin] unexpected DocumentPath response: {other:?}");
+                None
+            }
+            Err(e) => {
+                eprintln!("[plugin] DocumentPath request failed: {e}");
+                None
+            }
+        }
+    }
+
+    fn system_variable(&self, name: &str) -> Option<HostSettingValue> {
+        match self.client.request(PluginRequest::GetSystemVariable { name: name.to_owned() }) {
+            Ok(PluginResponse::SystemVariable(value)) => value,
+            _ => None,
+        }
+    }
+
+    fn set_system_variable(
+        &mut self,
+        name: &str,
+        value: HostSettingValue,
+    ) -> Result<HostSettingValue, String> {
+        match self.client.request(PluginRequest::SetSystemVariable {
+            name: name.to_owned(),
+            value,
+        }) {
+            Ok(PluginResponse::SystemVariableResult(result)) => {
+                if result.is_ok() {
+                    self.document_cache = OnceCell::new();
+                }
+                result
+            }
+            Ok(PluginResponse::Error(error)) => Err(error),
+            Ok(other) => Err(format!("unexpected system variable response: {other:?}")),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn update_entities_transaction(
+        &mut self,
+        label: &str,
+        entities: Vec<EntityType>,
+    ) -> Result<(), String> {
+        match self.client.request(PluginRequest::UpdateEntitiesTransaction {
+            label: label.to_owned(), entities,
+        }) {
+            Ok(PluginResponse::EntityTransactionResult(result)) => {
+                if result.is_ok() { self.document_cache = OnceCell::new(); }
+                result
+            }
+            Ok(PluginResponse::Error(error)) => Err(error),
+            Ok(other) => Err(format!("unexpected entity transaction response: {other:?}")),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn selection(&self) -> Vec<Handle> {
+        match self.client.request(PluginRequest::GetSelection) {
+            Ok(PluginResponse::Selection(handles)) => handles,
+            _ => Vec::new(),
+        }
+    }
+
+    fn solid_operation(&mut self, operation: crate::host::SolidOperation) -> Result<Handle, String> {
+        match self.client.request(PluginRequest::SolidOperation { operation }) {
+            Ok(PluginResponse::SolidResult(result)) => {
+                if result.is_ok() { self.document_cache = OnceCell::new(); }
+                result
+            }
+            Ok(PluginResponse::Error(error)) => Err(error),
+            Ok(other) => Err(format!("unexpected solid operation response: {other:?}")),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn run_command(&mut self, request: crate::host::CommandRequest) -> Result<crate::host::CommandOutcome, String> {
+        match self.client.request(PluginRequest::RunCommand { request }) {
+            Ok(PluginResponse::CommandResult(result)) => {
+                self.document_cache = OnceCell::new();
+                result
+            }
+            Ok(PluginResponse::Error(error)) => Err(error),
+            Ok(other) => Err(format!("unexpected command response: {other:?}")),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn table_operation(&mut self, operation: crate::host::TableOperation) -> Result<Handle, String> {
+        match self.client.request(PluginRequest::TableOperation { operation }) {
+            Ok(PluginResponse::TableResult(result)) => {
+                if result.is_ok() { self.document_cache = OnceCell::new(); }
+                result
+            }
+            Ok(PluginResponse::Error(error)) => Err(error),
+            Ok(other) => Err(format!("unexpected table operation response: {other:?}")),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn set_selection(&mut self, handles: &[Handle]) -> Result<(), String> {
+        match self.client.request(PluginRequest::SetSelection { handles: handles.to_vec() }) {
+            Ok(PluginResponse::SelectionResult(result)) => result,
+            Ok(PluginResponse::Error(error)) => Err(error),
+            Ok(other) => Err(format!("unexpected selection response: {other:?}")),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn add_layer(&mut self, config: crate::host::LayerConfig) -> Option<Handle> {
+        match self.client.request(PluginRequest::AddLayer(config)) {
+            Ok(PluginResponse::OptHandle(h)) => {
+                if h.is_some() {
+                    self.document_cache = OnceCell::new();
+                }
+                h
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected AddLayer response: {other:?}");
+                None
+            }
+            Err(e) => {
+                eprintln!("[plugin] AddLayer request failed: {e}");
+                None
+            }
+        }
+    }
+
+    fn modify_layer(&mut self, config: crate::host::LayerConfig) -> bool {
+        match self.client.request(PluginRequest::ModifyLayer(config)) {
+            Ok(PluginResponse::Bool(b)) => {
+                if b {
+                    self.document_cache = OnceCell::new();
+                }
+                b
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected ModifyLayer response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] ModifyLayer request failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn execute_command(&mut self, cmd: &str) -> bool {
+        match self.client.request(PluginRequest::ExecuteCommand(cmd.to_string())) {
+            Ok(PluginResponse::Bool(b)) => b,
+            Ok(other) => {
+                eprintln!("[plugin] unexpected ExecuteCommand response: {other:?}");
+                false
+            }
+            Err(e) => {
+                eprintln!("[plugin] ExecuteCommand request failed: {e}");
+                false
+            }
+        }
+    }
+
+    // ── fork: the fork's own additions follow the upstream ones ─────────────
+    // (same policy as `crate::host`: upstream's slots/positions stay untouched,
+    // fork-only methods are appended. See docs/fork-patches.md §A-1.)
+    fn import_frame_block(
+        &mut self,
+        req: crate::host::ImportFrameBlockRequest,
+    ) -> Result<Vec<codec::entities::AttributeDefinition>, String> {
+        match self.client.request(PluginRequest::ImportFrameBlock(req)) {
+            Ok(PluginResponse::ImportFrameBlock(result)) => {
+                if result.is_ok() {
+                    self.document_cache = OnceCell::new();
+                }
+                result
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected ImportFrameBlock response: {other:?}");
+                Err(format!("unexpected response: {other:?}"))
+            }
+            Err(e) => {
+                eprintln!("[plugin] ImportFrameBlock failed: {e}");
+                Err(e.to_string())
+            }
+        }
+    }
+
+    fn ensure_dim_styles(&mut self, defs: Vec<crate::host::DimStyleDef>) -> usize {
+        match self.client.request(PluginRequest::EnsureDimStyles(defs)) {
+            Ok(PluginResponse::Count(n)) => {
+                if n > 0 {
+                    self.document_cache = OnceCell::new();
+                }
+                n
+            }
+            Ok(other) => {
+                eprintln!("[plugin] unexpected EnsureDimStyles response: {other:?}");
+                0
+            }
+            Err(e) => {
+                eprintln!("[plugin] EnsureDimStyles failed: {e}");
+                0
+            }
+        }
+    }
+}
+
+/// Sentinel reader used when the shared-memory view could not be initialized.
+struct EmptyDocumentReader;
+
+impl DocumentReader for EmptyDocumentReader {
+    fn entity_count(&self) -> usize {
+        0
+    }
+    fn for_each_entity(&self, _f: &mut dyn FnMut(ReaderEntity<'_>)) {}
+    fn layer_name(&self, _handle: Handle) -> Option<&str> {
+        None
+    }
+    fn app_id_name(&self, _handle: Handle) -> Option<&str> {
+        None
+    }
+}
+
+#[cfg(all(test, feature = "host"))]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::thread;
+
+    use codec::entities::Point;
+    use codec::{EntityType, Handle};
+    use interprocess::local_socket::{
+        traits::{Listener, Stream as StreamTrait},
+        GenericNamespaced, ListenerOptions, Stream, ToNsName,
+    };
+
+    use crate::host::HostApi;
+    use crate::ipc::client::{IpcClient, PluginHostApi};
+    use crate::ipc::protocol::{HostToPlugin, PluginRequest, PluginResponse, PluginToHost};
+    use crate::ipc::transport::{recv, send};
+
+    fn unique_socket_name() -> String {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!("ocs_plugin_client_test_{}_{}", std::process::id(), n)
+    }
+
+    fn make_client() -> (PluginHostApi, Stream) {
+        let name = unique_socket_name();
+        let name_ref = name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .expect("valid name");
+        let listener = ListenerOptions::new()
+            .name(name_ref)
+            .create_sync()
+            .expect("listener");
+        let client_name = name.clone();
+        let client_thread = thread::spawn(move || {
+            StreamTrait::connect(client_name.to_ns_name::<GenericNamespaced>().unwrap())
+                .expect("connect")
+        });
+        let server = listener.accept().expect("accept");
+        let client_stream = client_thread.join().expect("client thread");
+        let client = IpcClient::from_stream(server);
+        let api = PluginHostApi::new(
+            client,
+            0,
+            std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::new())),
+        );
+        (api, client_stream)
+    }
+
+    #[test]
+    fn push_info_emits_request() {
+        let (mut api, mut peer) = make_client();
+        let peer_handle = thread::spawn(move || {
+            let msg = recv::<PluginToHost>(&mut peer).unwrap();
+            match msg {
+                PluginToHost::Request(req) => match *req {
+                    PluginRequest::PushInfo(s) => assert_eq!(s, "hello host"),
+                    other => panic!("unexpected: {other:?}"),
+                },
+                other => panic!("unexpected: {other:?}"),
+            }
+            send(&mut peer, &HostToPlugin::Response(Box::new(PluginResponse::Ok))).unwrap();
+        });
+        api.push_info("hello host");
+        peer_handle.join().unwrap();
+    }
+
+    #[test]
+    fn add_entity_awaits_handle_response() {
+        let (mut api, mut peer) = make_client();
+        let peer_handle = thread::spawn(move || {
+            let msg = recv::<PluginToHost>(&mut peer).unwrap();
+            match msg {
+                PluginToHost::Request(req) => match *req {
+                    PluginRequest::AddEntity(_) => {}
+                    other => panic!("unexpected: {other:?}"),
+                },
+                other => panic!("unexpected: {other:?}"),
+            }
+            send(
+                &mut peer,
+                &HostToPlugin::Response(Box::new(PluginResponse::Handle(Handle::new(42)))),
+            )
+            .unwrap();
+        });
+        let handle = api.add_entity(EntityType::Point(Point::new()));
+        peer_handle.join().unwrap();
+        assert_eq!(handle, Handle::new(42));
+    }
+
+    #[test]
+    fn add_entities_awaits_handles_response() {
+        let (mut api, mut peer) = make_client();
+        let peer_handle = thread::spawn(move || {
+            let msg = recv::<PluginToHost>(&mut peer).unwrap();
+            match msg {
+                PluginToHost::Request(req) => match *req {
+                    PluginRequest::AddEntities(v) => assert_eq!(v.len(), 3),
+                    other => panic!("unexpected: {other:?}"),
+                },
+                other => panic!("unexpected: {other:?}"),
+            }
+            send(
+                &mut peer,
+                &HostToPlugin::Response(Box::new(PluginResponse::Handles(vec![
+                    Handle::new(10),
+                    Handle::new(11),
+                    Handle::new(12),
+                ]))),
+            )
+            .unwrap();
+        });
+        let handles = api.add_entities(vec![
+            EntityType::Point(Point::new()),
+            EntityType::Point(Point::new()),
+            EntityType::Point(Point::new()),
+        ]);
+        peer_handle.join().unwrap();
+        assert_eq!(handles, vec![Handle::new(10), Handle::new(11), Handle::new(12)]);
+    }
+
+    #[test]
+    fn update_entity_awaits_bool_response() {
+        let (mut api, mut peer) = make_client();
+        let peer_handle = thread::spawn(move || {
+            let msg = recv::<PluginToHost>(&mut peer).unwrap();
+            match msg {
+                PluginToHost::Request(req) => match *req {
+                    PluginRequest::UpdateEntity(_) => {}
+                    other => panic!("unexpected: {other:?}"),
+                },
+                other => panic!("unexpected: {other:?}"),
+            }
+            send(&mut peer, &HostToPlugin::Response(Box::new(PluginResponse::Bool(true)))).unwrap();
+        });
+        assert!(api.update_entity(EntityType::Point(Point::new())));
+        peer_handle.join().unwrap();
+    }
+
+    #[test]
+    fn remove_entity_awaits_bool_response() {
+        let (mut api, mut peer) = make_client();
+        let peer_handle = thread::spawn(move || {
+            let msg = recv::<PluginToHost>(&mut peer).unwrap();
+            match msg {
+                PluginToHost::Request(req) => match *req {
+                    PluginRequest::RemoveEntity { handle } => {
+                        assert_eq!(handle, Handle::new(7));
+                    }
+                    other => panic!("unexpected: {other:?}"),
+                },
+                other => panic!("unexpected: {other:?}"),
+            }
+            send(&mut peer, &HostToPlugin::Response(Box::new(PluginResponse::Bool(true)))).unwrap();
+        });
+        assert!(api.remove_entity(Handle::new(7)));
+        peer_handle.join().unwrap();
+    }
+}

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{i18n:gui.rough.h1}}</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 16px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 10px; }
+  .card { background: #fff; border: 1px solid #d9dee5; border-radius: 8px;
+          padding: 12px 14px; margin-bottom: 10px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: #555; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .opt { padding: 5px 10px; border: 1px solid #c6ccd4; border-radius: 5px;
+         background: #fafbfc; cursor: pointer; font-size: 13px; user-select: none; }
+  .opt.on { background: #1e6fff; border-color: #1e6fff; color: #fff; }
+  .opt:disabled { opacity: .35; cursor: not-allowed; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  canvas { width: 100%; height: auto; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 3px 6px; font-size: 13px; }
+  td label { color: #666; }
+  input[type=text], input[type=number], select {
+    width: calc(100% - 12px); padding: 4px 6px; border: 1px solid #c6ccd4;
+    border-radius: 4px; font-size: 13px; box-sizing: border-box; }
+  input:disabled { background: #eee; color: #999; }
+  .bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .btn { border: none; border-radius: 6px; padding: 8px 16px; font-size: 14px;
+         cursor: pointer; }
+  .btn.primary { background: #1e6fff; color: #fff; }
+  .btn.primary:disabled { background: #9db9e8; cursor: not-allowed; }
+  .btn.ghost { background: #e4e7ec; color: #333; }
+  .hint { font-size: 12px; color: #888; }
+  #status { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .ok { color: #1a7f37; }
+  .bad { color: #d1242f; }
+  .small { font-size: 12px; color: #777; }
+</style>
+</head>
+<body>
+<h1>{{i18n:gui.rough.h1}} <span id="pos" class="small"></span></h1>
+
+<div class="card">
+  <h2>{{i18n:gui.rough.base}}</h2>
+  <div class="row" id="baseRow">
+    <button class="opt" data-v="C1">{{i18n:gui.rough.c1}}</button>
+    <button class="opt" data-v="C2">{{i18n:gui.rough.c2}}</button>
+    <button class="opt" data-v="C3">{{i18n:gui.rough.c3}}</button>
+    <button class="opt" data-v="C4">{{i18n:gui.rough.c4}}</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>{{i18n:gui.rough.extra}}</h2>
+  <div class="row" id="extraRow">
+    <button class="opt" data-v="R1">{{i18n:gui.rough.r1}}</button>
+    <button class="opt" data-v="R2">{{i18n:gui.rough.r2}}</button>
+    <button class="opt" data-v="R3">{{i18n:gui.rough.r3}}</button>
+    <button class="opt" data-v="R4">{{i18n:gui.rough.r4}}</button>
+    <button class="opt" data-v="R5">{{i18n:gui.rough.r5}}</button>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>{{i18n:gui.rough.preview}}</h2>
+    <canvas id="cv" width="380" height="380"></canvas>
+  </div>
+  <div>
+    <div class="card">
+      <h2>{{i18n:gui.rough.attrs}}</h2>
+      <table id="attTbl">
+        <tr><td><label>{{i18n:gui.rough.attr_a_up}}</label></td><td><input id="v_A_prime" type="text" placeholder="{{i18n:gui.rough.blank}}"></td></tr>
+        <tr><td><label>{{i18n:gui.rough.attr_a}}</label></td><td><input id="v_A" type="text" placeholder="{{i18n:gui.rough.blank}}"></td></tr>
+        <tr><td><label>{{i18n:gui.rough.attr_e}}</label></td><td><input id="v_E" type="text" placeholder="{{i18n:gui.rough.blank}}"></td></tr>
+      </table>
+      <table id="extTbl" style="margin-top:6px"></table>
+    </div>
+    <div class="card">
+      <h2>{{i18n:gui.rough.p_symbol}}</h2>
+      <select id="pSel">
+        <option value="">{{i18n:gui.rough.blank}}</option>
+        <option value="=">=</option>
+        <option value="⊥">⊥</option>
+        <option value="×">×</option>
+        <option value="M">M</option>
+        <option value="C">C</option>
+        <option value="R">R</option>
+        <option value="P">P</option>
+      </select>
+      <div class="hint">{{i18n:gui.rough.c2_hint}}</div>
+    </div>
+    <div class="card">
+      <h2>{{i18n:gui.rough.rotate}}</h2>
+      <input id="rot" type="number" step="1" value="0" style="width:80px"> 度
+      <div class="hint">{{i18n:gui.rough.rot_hint}}</div>
+    </div>
+    <div class="bar">
+      <button class="btn primary" id="apply">{{i18n:gui.rough.apply}}</button>
+    </div>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const q = new URLSearchParams(location.search);
+  const X = parseFloat(q.get('x') || '0');
+  const Y = parseFloat(q.get('y') || '0');
+  // 本窗口钉在哪张图纸上（插件开窗时写的 `tab=`）——请求带回给插件，
+  // 多张图各开窗口时不串图；旧窗口（图纸已关）会被插件明确拒绝。
+  const tab = q.get('tab');
+  document.getElementById('pos').textContent =
+    '插入点 (' + X.toFixed(X % 1 ? 3 : 1) + ', ' + Y.toFixed(Y % 1 ? 3 : 1) + ')';
+
+  let base = 'C1', extra = 'R1';
+  const BASE = document.getElementById('baseRow');
+  const EXTR = document.getElementById('extraRow');
+  const btn = (row, pick) => {
+    const b = row.querySelector('button[data-v="' + pick + '"]');
+    if (!b) return;
+    for (const o of row.querySelectorAll('.opt')) o.classList.remove('on');
+    b.classList.add('on');
+  };
+
+  // ── 形态选项 → 附加文字字段（参考矩阵）──
+  // R2/R3: B′/C/G @x=16.14|14.473；R4/R5: B/B′/C/G @x=17.706（B′@y=18）
+  const EXT_ROWS = {
+    R2: [['B′', '加工方法B′', 'B_prime', 16.14, 12.4],
+         ['C', '取样长度C', 'C', 16.14, 6.8],
+         ['G', '纹理方向G', 'G', 16.14, 2.25]],
+    R3: [['B′', '加工方法B′', 'B_prime', 14.473, 12.4],
+         ['C', '取样长度C', 'C', 14.473, 6.8],
+         ['G', '纹理方向G', 'G', 14.473, 2.25]],
+    R4: [['B′', '加工方法B′', 'B_prime', 17.706, 18],
+         ['B', '加工方法B', 'B', 17.706, 12.4],
+         ['C', '取样长度C', 'C', 17.706, 6.8],
+         ['G', '纹理方向G', 'G', 17.706, 2.25]],
+    R5: [['B′', '加工方法B′', 'B_prime', 17.706, 18],
+         ['B', '加工方法B', 'B', 17.706, 12.4],
+         ['C', '取样长度C', 'C', 17.706, 6.8],
+         ['G', '纹理方向G', 'G', 17.706, 2.25]],
+  };
+  function rebuildExt() {
+    const tbl = document.getElementById('extTbl');
+    tbl.innerHTML = '';
+    const rows = EXT_ROWS[extra] || [];
+    for (const [sym, label, id, x, y] of rows) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td><label>' + label + ' (' + x + ',' + y + ')</label></td>' +
+        '<td><input type="text" id="v_' + id + '" placeholder="空白"></td>';
+      tbl.appendChild(tr);
+    }
+  }
+
+  // ── Canvas 预览（几何与粗糙度1.dxf 参考一致，灰色示意）──
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const GEO = {
+    L1: [[4.186, 5.35], [7.072, 0.35]],
+    L2: [[7.072, 0.35], [13.423, 11.35]],
+    C2c: [7.072, 3.683, 1.667],
+    C3l: [[4.186, 5.35], [9.959, 5.35]],
+    C4s: [[7.072, 0.35], [9.959, 5.35]],
+    R2: [[[13.423, 11.35], [30.833, 11.35]], [13.423, 11.35, 1.667]],
+    R3: [[[13.423, 11.35], [25.654, 11.35]]],
+    R4: [[[13.423, 11.35], [25.654, 11.35]], [[13.423, 11.35], [16.656, 16.95]], [[16.656, 16.95], [25.654, 16.95]]],
+    R5: [[[13.423, 11.35], [30.833, 11.35]], [13.423, 11.35, 1.667], [[13.423, 11.35], [16.656, 16.95]], [[16.656, 16.95], [30.833, 16.95]]],
+    TEXTS: [['A′', 8.248, 11.65], ['A', 8.248, 7.1], ['E', 1.386, 0], ['P', 11.009, 1.4]],
+  };
+  function drawPreview() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    // 世界坐标范围 → 画布
+    let maxX = 30.833, minX = 0, maxY = 18, minY = -2;
+    const rotDeg = parseFloat(document.getElementById('rot').value || '0') || 0;
+    const scale = Math.min(360 / (maxX - minX), 360 / (maxY - minY));
+    const W = (x, y) => {
+      const r = rotDeg * Math.PI / 180;
+      let xx = x, yy = y;
+      if (r) { xx = x * Math.cos(r) - y * Math.sin(r); yy = x * Math.sin(r) + y * Math.cos(r); }
+      return [xx * scale + 10, (maxY - yy + minY) * scale + 10];
+    };
+    const line = (a, b) => {
+      const p = W(a[0], a[1]), q = W(b[0], b[1]);
+      ctx.strokeStyle = '#444'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+    };
+    const circle = (cx, cy, r) => {
+      const c = W(cx, cy);
+      ctx.strokeStyle = '#444'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.arc(c[0], c[1], r * scale, 0, Math.PI * 2); ctx.stroke();
+    };
+    line(GEO.L1[0], GEO.L1[1]);
+    line(GEO.L2[0], GEO.L2[1]);
+    if (base === 'C2') circle(...GEO.C2c);
+    if (base === 'C3') line(GEO.C3l[0], GEO.C3l[1]);
+    if (base === 'C4') {
+      line(GEO.C3l[0], GEO.C3l[1]);
+      line(GEO.C4s[0], GEO.C4s[1]);
+      // 填充三角
+      const p = [W(4.186, 5.35), W(9.959, 5.35), W(7.072, 0.35)];
+      ctx.fillStyle = '#666'; ctx.beginPath();
+      ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(p[1][0], p[1][1]); ctx.lineTo(p[2][0], p[2][1]);
+      ctx.closePath(); ctx.fill();
+    }
+    const eg = GEO['R' + extra] || [];
+    for (const item of eg) {
+      if (Array.isArray(item[0])) line(item[0], item[1]);
+      else circle(item[0], item[1], item[2]);
+    }
+    // 文字占位
+    ctx.fillStyle = '#16a34a'; ctx.font = '10px sans-serif';
+    for (const [t, x, y] of GEO.TEXTS) {
+      if (t === 'P' && base === 'C2') continue;
+      const p = W(x, y);
+      ctx.fillText(t, p[0] + 2, p[1] - 5);
+    }
+    const extRows = EXT_ROWS[extra] || [];
+    for (const [t] of extRows) {
+      const def = EXT_ROWS[extra].find(r => r[0] === t);
+      const p = W(def[3], def[4]);
+      ctx.fillText(t, p[0] + 2, p[1] - 5);
+    }
+  }
+
+  BASE.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    base = b.dataset.v; btn(BASE, base);
+    // C2（以不去除材料的方法获得）时 P 强制空白并禁用（对照参考：该列无 P）。
+    const pSel = document.getElementById('pSel');
+    if (base === 'C2') { pSel.value = ''; pSel.disabled = true; }
+    else pSel.disabled = false;
+    drawPreview();
+  });
+  EXTR.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    extra = b.dataset.v; btn(EXTR, extra);
+    rebuildExt(); drawPreview();
+  });
+  document.getElementById('rot').addEventListener('input', drawPreview);
+  btn(BASE, base); btn(EXTR, extra); rebuildExt(); drawPreview();
+
+  // ── 应用并插入 ──
+  const status = document.getElementById('status');
+  const applyBtn = document.getElementById('apply');
+  applyBtn.addEventListener('click', async () => {
+    const vals = {};
+    const grab = id => (document.getElementById(id) || {}).value || '';
+    vals['A′'] = grab('v_A_prime');
+    vals['A'] = grab('v_A');
+    vals['E'] = grab('v_E');
+    const extRows = EXT_ROWS[extra] || [];
+    for (const [, , id, , ] of extRows) vals['' + id] = grab('v_' + id);
+    // values 键用英文代号
+    const keyOf = (sym) => sym;
+    const values = {};
+    const map = {'v_A_prime': 'A′', 'v_A': 'A', 'v_E': 'E', 'v_B_prime': 'B′', 'v_B': 'B', 'v_C': 'C', 'v_G': 'G'};
+    for (const k in map) values[map[k]] = grab(k);
+    const body = {
+      x: X, y: Y,
+      base: 'C' + (base === 'C1' ? '1' : base[1]),
+      extra: 'R' + (extra === 'R1' ? '1' : extra[1]),
+      p: document.getElementById('pSel').value,
+      rotation: parseFloat(document.getElementById('rot').value || '0') || 0,
+      values: values,
+      tab: tab || undefined,
+    };
+    applyBtn.disabled = true;
+    status.textContent = '正在生成…';
+    status.className = '';
+    try {
+      const r = await fetch('/api/rough_apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        status.className = 'ok';
+        status.textContent = '已插入（块 ' + j.block + '，比例 ' + j.scale + '）。';
+        if (j.error) status.textContent = '已插入：' + j.error;
+        // 成功自动关闭页面。
+        setTimeout(() => { try { window.close(); } catch (_) {} }, 350);
+        return;
+      } else {
+        status.className = 'bad';
+        status.textContent = '失败：' + (j.error || JSON.stringify(j));
+        applyBtn.disabled = false;
+      }
+    } catch (err) {
+      status.className = 'bad';
+      status.textContent = '请求失败：' + err;
+      applyBtn.disabled = false;
+    }
+  });
+
+})();
+</script>
+<script>
+/* 页面心跳：告诉插件本窗口还开着（避免重复开窗）；关闭时 bye=1 */
+(function () {
+  var key = "rough";
+  function ping(bye) {
+    try { fetch("/api/page_ping?p=" + encodeURIComponent(key) + (bye ? "&bye=1" : ""), { cache: "no-store" }); } catch (e) {}
+  }
+  ping(false);
+  setInterval(function () { ping(false); }, 5000);
+  window.addEventListener("beforeunload", function () { ping(true); });
+})();
+</script>
+</body>
+</html>

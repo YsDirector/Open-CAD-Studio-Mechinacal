@@ -1,0 +1,144 @@
+//! Host-side IPC request handler.
+
+use crate::host::HostApi;
+use crate::ipc::protocol::{PluginRequest, PluginResponse};
+
+fn addressable_document_snapshot(host: &dyn HostApi) -> codec::CadDocument {
+    let mut snapshot = host.document().clone();
+    let attributes = host
+        .document()
+        .entities()
+        .filter_map(|entity| match entity {
+            codec::EntityType::Insert(insert) => Some(insert.attributes.clone()),
+            _ => None,
+        })
+        .flatten()
+        .map(codec::EntityType::AttributeEntity)
+        .collect::<Vec<_>>();
+    for attribute in attributes {
+        // Attribute entities remain canonical children of INSERT in the host
+        // document.  The IPC snapshot also indexes them by handle so plugin
+        // document models can address a child exactly like any other entity.
+        let _ = snapshot.add_entity(attribute);
+    }
+    snapshot
+}
+
+/// Apply one plugin request to the host's `HostApi` implementation.
+///
+/// `on_start_interactive` is called when the plugin starts an interactive
+/// command; the host should install an adapter that sends
+/// `HostRequest::InteractiveEvent` back to the plugin process.
+pub fn handle_plugin_request(
+    host: &mut dyn HostApi,
+    req: PluginRequest,
+    on_start_interactive: &mut dyn FnMut(u64),
+) -> PluginResponse {
+    use PluginRequest::*;
+    match req {
+        PushInfo(msg) => {
+            host.push_info(&msg);
+            PluginResponse::Ok
+        }
+        PushOutput(msg) => {
+            host.push_output(&msg);
+            PluginResponse::Ok
+        }
+        PushError(msg) => {
+            host.push_error(&msg);
+            PluginResponse::Ok
+        }
+        AddEntity(entity) => PluginResponse::Handle(host.add_entity(entity)),
+        AddEntities(entities) => PluginResponse::Handles(host.add_entities(entities)),
+        UpdateEntity(entity) => PluginResponse::Bool(host.update_entity(entity)),
+        RemoveEntity { handle } => PluginResponse::Bool(host.remove_entity(handle)),
+        BumpGeometry => {
+            host.bump_geometry();
+            PluginResponse::Ok
+        }
+        ReadRecord { handle, app_name } => {
+            PluginResponse::Record(host.read_record(handle, &app_name).cloned())
+        }
+        WriteRecord { handle, record } => PluginResponse::Bool(host.write_record(handle, record)),
+        RemoveRecord { handle, app_name } => {
+            PluginResponse::Bool(host.remove_record(handle, &app_name))
+        }
+        PushUndo { label } => {
+            host.push_undo(&label);
+            PluginResponse::Ok
+        }
+        BeginUndo { label } => {
+            host.begin_undo(&label);
+            PluginResponse::Ok
+        }
+        CommitUndo => {
+            host.commit_undo();
+            PluginResponse::Ok
+        }
+        SetDirty => {
+            host.set_dirty();
+            PluginResponse::Ok
+        }
+        StartInteractive { command_id } => {
+            on_start_interactive(command_id);
+            PluginResponse::Ok
+        }
+        DocumentSnapshot => PluginResponse::Document(Box::new(addressable_document_snapshot(host))),
+        OpenDocumentView => match host.document_view() {
+            Some(info) => PluginResponse::DocumentView {
+                path: info.path,
+                version: info.version,
+            },
+            None => PluginResponse::Error("shared document view unavailable".to_string()),
+        },
+        OpenDocumentViewV4 { tab_id } => match host.document_view_v4(tab_id) {
+            Some(info) => PluginResponse::DocumentViewV4 {
+                path: info.path,
+                version: info.version,
+            },
+            None => PluginResponse::Error("V4 shared document view unavailable".to_string()),
+        },
+        CloseDocumentViewV4 { tab_id } => {
+            host.close_document_view_v4(tab_id);
+            PluginResponse::Ok
+        }
+        GetTabId => PluginResponse::TabId(host.tab_id()),
+        SelectedHandles => PluginResponse::Handles(host.selected_handles()),
+        SetCurrentLayer(name) => PluginResponse::Bool(host.set_current_layer(&name)),
+        EnsureLayers(defs) => PluginResponse::Count(host.ensure_layers(defs)),
+        EnsureLinetypes(defs) => PluginResponse::Count(host.ensure_linetypes(defs)),
+        EnsureTextStyles(defs) => PluginResponse::Count(host.ensure_text_styles(defs)),
+        ShowFramePicker(frames) => PluginResponse::Bool(host.show_frame_picker(frames)),
+        TakePendingFrameSelection => {
+            PluginResponse::FrameSelection(host.take_pending_frame_selection())
+        }
+        ImportFrameBlock(req) => {
+            PluginResponse::ImportFrameBlock(host.import_frame_block(req))
+        }
+        EnsureDimStyles(defs) => PluginResponse::Count(host.ensure_dim_styles(defs)),
+        AddBlockRecord { name, entities } => {
+            match host.add_block_record(&name, entities) {
+                Ok(h) => PluginResponse::Handle(h),
+                Err(e) => PluginResponse::Error(e),
+            }
+        }
+        DocumentPath { tab_id } => PluginResponse::DocumentPath(
+            host.document_path(tab_id).map(|path| path.into_os_string()),
+        ),
+        AddLayer(config) => PluginResponse::OptHandle(host.add_layer(config)),
+        ModifyLayer(config) => PluginResponse::Bool(host.modify_layer(config)),
+        ExecuteCommand(cmd) => PluginResponse::Bool(host.execute_command(&cmd)),
+        GetSystemVariable { name } => PluginResponse::SystemVariable(host.system_variable(&name)),
+        SetSystemVariable { name, value } => {
+            PluginResponse::SystemVariableResult(host.set_system_variable(&name, value))
+        }
+        UpdateEntitiesTransaction { label, entities } => PluginResponse::EntityTransactionResult(
+            host.update_entities_transaction(&label, entities),
+        ),
+        GetSelection => PluginResponse::Selection(host.selection()),
+        SetSelection { handles } => PluginResponse::SelectionResult(host.set_selection(&handles)),
+        SolidOperation { operation } => PluginResponse::SolidResult(host.solid_operation(operation)),
+        TableOperation { operation } => PluginResponse::TableResult(host.table_operation(operation)),
+        RunCommand { request } => PluginResponse::CommandResult(host.run_command(request)),
+    }
+}

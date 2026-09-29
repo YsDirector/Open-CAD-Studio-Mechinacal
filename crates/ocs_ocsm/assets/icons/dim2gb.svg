@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Dimension to GB">
+  <path d="M4.5 7 V17 M10.5 7 V17" fill="none" stroke="#B4B6B9" stroke-width="1.625" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M4.5 12 H10.5" fill="none" stroke="#B4B6B9" stroke-width="1.625" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M7 10.5 L4.5 12 L7 13.5 M8 10.5 L10.5 12 L8 13.5" fill="none" stroke="#B4B6B9" stroke-width="1.625" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13.28 14.20 A3.6 3.6 0 1 1 16.09 15.99" fill="none" stroke="#6DB7ED" stroke-width="1.625" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="16.09,15.99 18.38,15.03 18.18,17.32" fill="#6DB7ED" stroke="none"/>
+</svg>

@@ -1,0 +1,41 @@
+# Use the system git CLI for git dependencies so that `url.insteadOf`
+# mirror rewrites (ghfast.top) are honored. The built-in libgit2 backend
+# ignores insteadOf, which makes `cargo build` stall on github.com fetches.
+# (fork: upstream keeps dropping this block on sync — keep it, see docs/fork-patches.md)
+[net]
+git-fetch-with-cli = true
+
+# getrandom 0.3 (pulled by ahash via opencadcodec) needs this cfg to select its
+# browser backend on wasm32-unknown-unknown, alongside its `wasm_js` feature
+# (enabled in Cargo.toml for the wasm target). Without it the web build fails
+# with "wasm32-unknown-unknown targets are not supported by default".
+#
+# `-Cstrip=none` overrides the release profile's `strip = true` for the wasm
+# target only: stripping removes the `target_features` custom section, so
+# `wasm-opt` can no longer see that `bulk-memory` is enabled and rejects the
+# module's memory.fill/copy ops ("require bulk memory"). Native release binaries
+# stay stripped; only the wasm keeps its feature section.
+[target.wasm32-unknown-unknown]
+rustflags = [
+    '--cfg',
+    'getrandom_backend="wasm_js"',
+    '-Cstrip=none',
+    # The debug UI build has a substantially deeper view-construction stack
+    # than the optimized bundle. Keep modal construction from exhausting the
+    # WebAssembly stack while developing with `trunk serve`.
+    '-Clink-arg=-zstack-size=4194304',
+]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = [
+    "-Clink-arg=-Wl,--stack,16777216",
+    "-Clink-arg=-Wl,--exclude-all-symbols",
+]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-Clink-arg=/STACK:16777216",
+]
+
+[env]
+RUST_MIN_STACK = "8388608"

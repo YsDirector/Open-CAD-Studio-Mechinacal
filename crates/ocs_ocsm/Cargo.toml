@@ -1,0 +1,26 @@
+[package]
+name = "ocs_ocsm"
+# 版本单一来源：plugin.toml 的 [plugin] version 是**宿主显示口径**，本行必须与它一致。
+# src/lib.rs 的 MANIFEST.version 走 env!("CARGO_PKG_VERSION")（即本行），
+# 一致性由 src/lib.rs 的 plugin_toml_version_matches_cargo_pkg_version 测试守住。
+version = "0.2.0"
+edition = "2021"
+description = "OCSMechanical 机械工具包：OCSM 初始化 + 数字键快速图层 + 图框插入 (OCSMFRAMEINIT/TF) + 智能标注 (D) + 尺寸引导 (GDIM/OCSMMCP)"
+license = "GPL-3.0-only"
+
+# A plugin is a C-ABI dynamic library the host loads at runtime.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The stable contract, with the runtime `host` surface (HostApi / BuiltinPlugin).
+# Path dependency inside the OpenCADStudio workspace keeps the plugin in sync
+# with the host it is built against (see PLUGIN.md).
+ocs_plugin_api = { path = "../ocs_plugin_api", features = ["host"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 明细表 ↔ 外部 .xlsx（第三期）：自己读写 xlsx（zip 容器 + XML），
+# 只用 workspace 里已有的 crate（不引外部工具、不联网新增依赖）。
+flate2 = "1"
+crc32fast = "1"
+quick-xml = "0.39"

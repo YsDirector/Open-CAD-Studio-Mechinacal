@@ -1,0 +1,505 @@
+{
+ "code": "公制螺纹底孔牙深明细表（钻孔用底孔径）",
+ "source": "~/桌面/GB/公制螺纹底孔牙深明细表.png（公制螺纹底孔牙深明细表，单位 mm；左表「公制粗牙」、右表「公制细牙」）",
+ "note": "「钻头大小」子类型的底孔径数据：按（公称 d，牙距 P）取底孔径。来源为用户 GB 目录下的底孔牙深明细表图片，逐行录入。左表 M3/M4/M5 各有一行非标准粗牙的重复档（M3×0.6、M4×0.75、M5×0.9），原表保留、不合并；右表含部分粗牙（M8×1、M12×1.5）。表外组合明确报错，不插值。",
+ "rows": [
+  {
+   "d": 1.0,
+   "p": 0.25,
+   "drill": 0.75,
+   "series": "coarse"
+  },
+  {
+   "d": 1.1,
+   "p": 0.25,
+   "drill": 0.85,
+   "series": "coarse"
+  },
+  {
+   "d": 1.2,
+   "p": 0.25,
+   "drill": 0.95,
+   "series": "coarse"
+  },
+  {
+   "d": 1.4,
+   "p": 0.3,
+   "drill": 1.1,
+   "series": "coarse"
+  },
+  {
+   "d": 1.6,
+   "p": 0.35,
+   "drill": 1.25,
+   "series": "coarse"
+  },
+  {
+   "d": 1.7,
+   "p": 0.35,
+   "drill": 1.35,
+   "series": "coarse"
+  },
+  {
+   "d": 1.8,
+   "p": 0.35,
+   "drill": 1.45,
+   "series": "coarse"
+  },
+  {
+   "d": 2.0,
+   "p": 0.4,
+   "drill": 1.6,
+   "series": "coarse"
+  },
+  {
+   "d": 2.2,
+   "p": 0.45,
+   "drill": 1.75,
+   "series": "coarse"
+  },
+  {
+   "d": 2.3,
+   "p": 0.45,
+   "drill": 1.9,
+   "series": "coarse"
+  },
+  {
+   "d": 2.5,
+   "p": 0.45,
+   "drill": 2.1,
+   "series": "coarse"
+  },
+  {
+   "d": 2.6,
+   "p": 0.45,
+   "drill": 2.2,
+   "series": "coarse"
+  },
+  {
+   "d": 3.0,
+   "p": 0.5,
+   "drill": 2.5,
+   "series": "coarse"
+  },
+  {
+   "d": 3.0,
+   "p": 0.6,
+   "drill": 2.4,
+   "series": "coarse"
+  },
+  {
+   "d": 3.5,
+   "p": 0.6,
+   "drill": 2.9,
+   "series": "coarse"
+  },
+  {
+   "d": 4.0,
+   "p": 0.7,
+   "drill": 3.3,
+   "series": "coarse"
+  },
+  {
+   "d": 4.0,
+   "p": 0.75,
+   "drill": 3.25,
+   "series": "coarse"
+  },
+  {
+   "d": 4.5,
+   "p": 0.75,
+   "drill": 3.8,
+   "series": "coarse"
+  },
+  {
+   "d": 5.0,
+   "p": 0.8,
+   "drill": 4.2,
+   "series": "coarse"
+  },
+  {
+   "d": 5.0,
+   "p": 0.9,
+   "drill": 4.1,
+   "series": "coarse"
+  },
+  {
+   "d": 6.0,
+   "p": 1.0,
+   "drill": 5.0,
+   "series": "coarse"
+  },
+  {
+   "d": 7.0,
+   "p": 1.0,
+   "drill": 6.0,
+   "series": "coarse"
+  },
+  {
+   "d": 8.0,
+   "p": 1.25,
+   "drill": 6.8,
+   "series": "coarse"
+  },
+  {
+   "d": 9.0,
+   "p": 1.25,
+   "drill": 7.8,
+   "series": "coarse"
+  },
+  {
+   "d": 10.0,
+   "p": 1.5,
+   "drill": 8.5,
+   "series": "coarse"
+  },
+  {
+   "d": 11.0,
+   "p": 1.5,
+   "drill": 9.5,
+   "series": "coarse"
+  },
+  {
+   "d": 12.0,
+   "p": 1.75,
+   "drill": 10.3,
+   "series": "coarse"
+  },
+  {
+   "d": 14.0,
+   "p": 2.0,
+   "drill": 12.0,
+   "series": "coarse"
+  },
+  {
+   "d": 16.0,
+   "p": 2.0,
+   "drill": 14.0,
+   "series": "coarse"
+  },
+  {
+   "d": 18.0,
+   "p": 2.5,
+   "drill": 15.5,
+   "series": "coarse"
+  },
+  {
+   "d": 20.0,
+   "p": 2.5,
+   "drill": 17.5,
+   "series": "coarse"
+  },
+  {
+   "d": 22.0,
+   "p": 2.5,
+   "drill": 19.5,
+   "series": "coarse"
+  },
+  {
+   "d": 24.0,
+   "p": 3.0,
+   "drill": 21.0,
+   "series": "coarse"
+  },
+  {
+   "d": 27.0,
+   "p": 3.0,
+   "drill": 24.0,
+   "series": "coarse"
+  },
+  {
+   "d": 30.0,
+   "p": 3.5,
+   "drill": 26.5,
+   "series": "coarse"
+  },
+  {
+   "d": 33.0,
+   "p": 3.5,
+   "drill": 29.5,
+   "series": "coarse"
+  },
+  {
+   "d": 36.0,
+   "p": 4.0,
+   "drill": 32.0,
+   "series": "coarse"
+  },
+  {
+   "d": 39.0,
+   "p": 4.0,
+   "drill": 35.0,
+   "series": "coarse"
+  },
+  {
+   "d": 42.0,
+   "p": 4.5,
+   "drill": 37.5,
+   "series": "coarse"
+  },
+  {
+   "d": 45.0,
+   "p": 4.5,
+   "drill": 40.5,
+   "series": "coarse"
+  },
+  {
+   "d": 1.0,
+   "p": 0.2,
+   "drill": 0.8,
+   "series": "fine"
+  },
+  {
+   "d": 1.1,
+   "p": 0.2,
+   "drill": 0.9,
+   "series": "fine"
+  },
+  {
+   "d": 1.2,
+   "p": 0.2,
+   "drill": 1.0,
+   "series": "fine"
+  },
+  {
+   "d": 1.4,
+   "p": 0.2,
+   "drill": 1.2,
+   "series": "fine"
+  },
+  {
+   "d": 1.6,
+   "p": 0.2,
+   "drill": 1.4,
+   "series": "fine"
+  },
+  {
+   "d": 1.8,
+   "p": 0.2,
+   "drill": 1.6,
+   "series": "fine"
+  },
+  {
+   "d": 2.0,
+   "p": 0.25,
+   "drill": 1.75,
+   "series": "fine"
+  },
+  {
+   "d": 2.5,
+   "p": 0.35,
+   "drill": 2.2,
+   "series": "fine"
+  },
+  {
+   "d": 3.0,
+   "p": 0.35,
+   "drill": 2.7,
+   "series": "fine"
+  },
+  {
+   "d": 3.5,
+   "p": 0.35,
+   "drill": 3.2,
+   "series": "fine"
+  },
+  {
+   "d": 4.0,
+   "p": 0.5,
+   "drill": 3.5,
+   "series": "fine"
+  },
+  {
+   "d": 4.5,
+   "p": 0.5,
+   "drill": 4.0,
+   "series": "fine"
+  },
+  {
+   "d": 5.0,
+   "p": 0.5,
+   "drill": 4.5,
+   "series": "fine"
+  },
+  {
+   "d": 5.5,
+   "p": 0.5,
+   "drill": 5.0,
+   "series": "fine"
+  },
+  {
+   "d": 6.0,
+   "p": 0.75,
+   "drill": 5.3,
+   "series": "fine"
+  },
+  {
+   "d": 7.0,
+   "p": 0.75,
+   "drill": 6.3,
+   "series": "fine"
+  },
+  {
+   "d": 8.0,
+   "p": 1.0,
+   "drill": 7.0,
+   "series": "fine"
+  },
+  {
+   "d": 8.0,
+   "p": 0.75,
+   "drill": 7.3,
+   "series": "fine"
+  },
+  {
+   "d": 9.0,
+   "p": 1.0,
+   "drill": 8.0,
+   "series": "fine"
+  },
+  {
+   "d": 9.0,
+   "p": 0.75,
+   "drill": 8.3,
+   "series": "fine"
+  },
+  {
+   "d": 10.0,
+   "p": 1.25,
+   "drill": 8.8,
+   "series": "fine"
+  },
+  {
+   "d": 10.0,
+   "p": 1.0,
+   "drill": 9.0,
+   "series": "fine"
+  },
+  {
+   "d": 10.0,
+   "p": 0.75,
+   "drill": 9.3,
+   "series": "fine"
+  },
+  {
+   "d": 11.0,
+   "p": 1.0,
+   "drill": 10.0,
+   "series": "fine"
+  },
+  {
+   "d": 11.0,
+   "p": 0.75,
+   "drill": 10.3,
+   "series": "fine"
+  },
+  {
+   "d": 12.0,
+   "p": 1.5,
+   "drill": 10.5,
+   "series": "fine"
+  },
+  {
+   "d": 12.0,
+   "p": 1.25,
+   "drill": 10.8,
+   "series": "fine"
+  },
+  {
+   "d": 12.0,
+   "p": 1.0,
+   "drill": 11.0,
+   "series": "fine"
+  },
+  {
+   "d": 14.0,
+   "p": 1.5,
+   "drill": 12.5,
+   "series": "fine"
+  },
+  {
+   "d": 15.0,
+   "p": 1.5,
+   "drill": 13.5,
+   "series": "fine"
+  },
+  {
+   "d": 15.0,
+   "p": 1.0,
+   "drill": 14.0,
+   "series": "fine"
+  },
+  {
+   "d": 16.0,
+   "p": 1.5,
+   "drill": 14.5,
+   "series": "fine"
+  },
+  {
+   "d": 16.0,
+   "p": 1.0,
+   "drill": 15.0,
+   "series": "fine"
+  },
+  {
+   "d": 17.0,
+   "p": 1.5,
+   "drill": 15.5,
+   "series": "fine"
+  },
+  {
+   "d": 17.0,
+   "p": 1.0,
+   "drill": 16.0,
+   "series": "fine"
+  },
+  {
+   "d": 18.0,
+   "p": 2.0,
+   "drill": 16.0,
+   "series": "fine"
+  },
+  {
+   "d": 18.0,
+   "p": 1.5,
+   "drill": 16.5,
+   "series": "fine"
+  },
+  {
+   "d": 18.0,
+   "p": 1.0,
+   "drill": 17.0,
+   "series": "fine"
+  },
+  {
+   "d": 20.0,
+   "p": 2.0,
+   "drill": 18.0,
+   "series": "fine"
+  },
+  {
+   "d": 20.0,
+   "p": 1.5,
+   "drill": 18.5,
+   "series": "fine"
+  },
+  {
+   "d": 20.0,
+   "p": 1.0,
+   "drill": 19.0,
+   "series": "fine"
+  },
+  {
+   "d": 22.0,
+   "p": 2.0,
+   "drill": 20.0,
+   "series": "fine"
+  },
+  {
+   "d": 22.0,
+   "p": 1.5,
+   "drill": 20.5,
+   "series": "fine"
+  }
+ ]
+}
